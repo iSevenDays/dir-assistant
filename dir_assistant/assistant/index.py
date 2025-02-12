@@ -104,7 +104,8 @@ def create_file_index(
     embed, ignore_paths, embed_chunk_size, extra_dirs=[], verbose=False
 ):
     cache_db = get_file_path(CACHE_PATH, INDEX_CACHE_FILENAME)
-
+    if verbose:
+        print(f"cache_db path: {cache_db}")
     # Start with current directory
     files_with_contents = get_files_with_contents(".", ignore_paths, cache_db)
 
