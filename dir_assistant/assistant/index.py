@@ -43,10 +43,6 @@ def _is_path_ignored(filepath, ignore_pattern):
     """
     Check if a filepath matches an ignore pattern.
     Handles both file and directory patterns correctly.
-
-    For the path /src/resources/swagger/swagger-core.js.map and ignore pattern resources/swagger/:
-    Path components: ['src', 'resources', 'swagger', 'swagger-core.js.map']
-    Ignore pattern components: ['resources', 'swagger']
     """
     # Normalize both paths
     norm_filepath = os.path.normpath(filepath)
@@ -56,23 +52,20 @@ def _is_path_ignored(filepath, ignore_pattern):
     filepath_parts = norm_filepath.split(os.sep)
     ignore_parts = norm_ignore.split(os.sep)
     
-    print(f"DEBUG: Checking if path should be ignored:")
-    print(f"DEBUG: filepath: {filepath}")
-    print(f"DEBUG: normalized filepath: {norm_filepath}")
-    print(f"DEBUG: filepath parts: {filepath_parts}")
-    print(f"DEBUG: ignore pattern: {ignore_pattern}")
-    print(f"DEBUG: normalized ignore pattern: {norm_ignore}")
-    print(f"DEBUG: ignore parts: {ignore_parts}")
+    # For each component in the filepath, check if it matches the start of the ignore pattern
+    for i in range(len(filepath_parts)):
+        remaining_parts = filepath_parts[i:]
+        # Check if we have enough remaining parts to match the ignore pattern
+        if len(remaining_parts) >= len(ignore_parts):
+            # Check if the next N components match the ignore pattern
+            matches = True
+            for j in range(len(ignore_parts)):
+                if remaining_parts[j] != ignore_parts[j]:
+                    matches = False
+                    break
+            if matches:
+                return True
     
-    # Check if the ignore pattern matches any part of the path
-    for i in range(len(filepath_parts) - len(ignore_parts) + 1):
-        current_window = filepath_parts[i:i+len(ignore_parts)]
-        print(f"DEBUG: checking window {i}: {current_window} against {ignore_parts}")
-        if current_window == ignore_parts:
-            print(f"DEBUG: MATCH FOUND - path will be ignored")
-            return True
-    
-    print(f"DEBUG: NO MATCH - path will not be ignored")
     return False
 
 
