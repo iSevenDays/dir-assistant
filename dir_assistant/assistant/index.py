@@ -24,21 +24,30 @@ def is_text_file(filepath):
 
 def get_text_files(directory=".", ignore_paths=[]):
     text_files = []
+    base_dir = os.path.abspath(directory)
     for root, dirs, files in os.walk(directory):
-        # Filter out directories that match ignore patterns
-        dirs[:] = [d for d in dirs if not any(
-            _is_path_ignored(os.path.join(root, d), ignore_path)
-            for ignore_path in ignore_paths
-        )]
+        # Convert root to absolute path for relative path calculation
+        abs_root = os.path.abspath(root)
         
-        for i, filename in enumerate(files, start=1):
-            filepath = os.path.join(root, filename)
+        # Filter directories first
+        filtered_dirs = []
+        for d in dirs:
+            abs_dir_path = os.path.join(abs_root, d)
+            rel_dir_path = os.path.relpath(abs_dir_path, base_dir)
+            if not any(_is_path_ignored(rel_dir_path, ignore_path) for ignore_path in ignore_paths):
+                filtered_dirs.append(d)
+        dirs[:] = filtered_dirs
+
+        for filename in files:
+            abs_filepath = os.path.join(abs_root, filename)
+            rel_filepath = os.path.relpath(abs_filepath, base_dir)
+            
             if (
-                os.path.isfile(filepath)
-                and not any(_is_path_ignored(filepath, ignore_path) for ignore_path in ignore_paths)
-                and is_text_file(filepath)
+                os.path.isfile(abs_filepath)
+                and not any(_is_path_ignored(rel_filepath, ignore_path) for ignore_path in ignore_paths)
+                and is_text_file(abs_filepath)
             ):
-                text_files.append(filepath)
+                text_files.append(abs_filepath)
     return text_files
 
 
