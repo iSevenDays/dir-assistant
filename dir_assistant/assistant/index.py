@@ -44,15 +44,16 @@ def _is_path_ignored(filepath, ignore_pattern):
     Check if a filepath matches an ignore pattern.
     Handles both file and directory patterns correctly.
     """
-    # Normalize both paths
-    norm_filepath = os.path.normpath(filepath)
-    norm_ignore = os.path.normpath(ignore_pattern.rstrip('/'))
+    # Normalize both paths and convert to lowercase for case-insensitive matching
+    norm_filepath = os.path.normpath(filepath).lower()
+    # Handle both forward and backward slashes in ignore pattern
+    norm_ignore = os.path.normpath(ignore_pattern.rstrip('/')).lower().replace('\\', '/')
     
-    # Split paths into components
-    filepath_parts = norm_filepath.split(os.sep)
-    ignore_parts = norm_ignore.split(os.sep)
+    # Split paths into components, handling both slash types
+    filepath_parts = norm_filepath.replace('\\', '/').split('/')
+    ignore_parts = norm_ignore.split('/')
     
-    # For each component in the filepath, check if it matches the start of the ignore pattern
+    # For each component in the filepath, check if it matches the ignore pattern
     for i in range(len(filepath_parts)):
         remaining_parts = filepath_parts[i:]
         # Check if we have enough remaining parts to match the ignore pattern
