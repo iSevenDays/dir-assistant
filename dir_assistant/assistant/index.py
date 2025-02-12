@@ -56,11 +56,23 @@ def _is_path_ignored(filepath, ignore_pattern):
     filepath_parts = norm_filepath.split(os.sep)
     ignore_parts = norm_ignore.split(os.sep)
     
+    print(f"DEBUG: Checking if path should be ignored:")
+    print(f"DEBUG: filepath: {filepath}")
+    print(f"DEBUG: normalized filepath: {norm_filepath}")
+    print(f"DEBUG: filepath parts: {filepath_parts}")
+    print(f"DEBUG: ignore pattern: {ignore_pattern}")
+    print(f"DEBUG: normalized ignore pattern: {norm_ignore}")
+    print(f"DEBUG: ignore parts: {ignore_parts}")
+    
     # Check if the ignore pattern matches any part of the path
     for i in range(len(filepath_parts) - len(ignore_parts) + 1):
-        if filepath_parts[i:i+len(ignore_parts)] == ignore_parts:
+        current_window = filepath_parts[i:i+len(ignore_parts)]
+        print(f"DEBUG: checking window {i}: {current_window} against {ignore_parts}")
+        if current_window == ignore_parts:
+            print(f"DEBUG: MATCH FOUND - path will be ignored")
             return True
     
+    print(f"DEBUG: NO MATCH - path will not be ignored")
     return False
 
 
