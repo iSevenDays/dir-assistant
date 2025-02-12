@@ -1,6 +1,7 @@
 from os import environ, getenv, makedirs
 from os.path import expanduser, join
 from subprocess import run
+import os
 
 import toml
 from dynaconf import Dynaconf
@@ -8,7 +9,8 @@ from dynaconf import Dynaconf
 VERSION = "1.3.0"
 CONFIG_FILENAME = "config.toml"
 CONFIG_PATH = "~/.config/dir-assistant"
-STORAGE_PATH = "~/.local/share/dir-assistant/"
+STORAGE_PATH = os.getenv("DIR_ASSISTANT_STORAGE_PATH", "~/.local/share/dir-assistant/")
+CACHE_PATH = os.getenv("DIR_ASSISTANT_CACHE_PATH", "~/.cache/dir-assistant")
 HISTORY_FILENAME = "history.pth"  # pth = prompt toolkit history
 CONFIG_DEFAULTS = {
     "SYSTEM_INSTRUCTIONS": "You are a helpful AI assistant.",

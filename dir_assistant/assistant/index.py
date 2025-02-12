@@ -6,11 +6,9 @@ from colorama import Fore, Style
 from faiss import IndexFlatL2
 from sqlitedict import SqliteDict
 
-from dir_assistant.cli.config import HISTORY_FILENAME, STORAGE_PATH, get_file_path
+from dir_assistant.cli.config import HISTORY_FILENAME, STORAGE_PATH, CACHE_PATH, get_file_path
 
 INDEX_CACHE_FILENAME = "index_cache.sqlite"
-INDEX_CACHE_PATH = "~/.cache/dir-assistant"
-
 
 TEXT_CHARS = bytearray({7, 8, 9, 10, 12, 13, 27} | set(range(0x20, 0x100)) - {0x7F})
 
@@ -105,7 +103,7 @@ def get_files_with_contents(directory, ignore_paths, cache_db):
 def create_file_index(
     embed, ignore_paths, embed_chunk_size, extra_dirs=[], verbose=False
 ):
-    cache_db = get_file_path(INDEX_CACHE_PATH, INDEX_CACHE_FILENAME)
+    cache_db = get_file_path(CACHE_PATH, INDEX_CACHE_FILENAME)
 
     # Start with current directory
     files_with_contents = get_files_with_contents(".", ignore_paths, cache_db)
@@ -248,7 +246,7 @@ def search_index(embed, index, query, all_chunks):
 
 def clear(args, config_dict):
     files = [
-        get_file_path(INDEX_CACHE_PATH, INDEX_CACHE_FILENAME),
+        get_file_path(CACHE_PATH, INDEX_CACHE_FILENAME),
         get_file_path(STORAGE_PATH, HISTORY_FILENAME),
     ]
     for file in files:
