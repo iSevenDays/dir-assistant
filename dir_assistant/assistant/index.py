@@ -16,7 +16,12 @@ TEXT_CHARS = bytearray({7, 8, 9, 10, 12, 13, 27} | set(range(0x20, 0x100)) - {0x
 
 
 def is_text_file(filepath):
-    return not bool(open(filepath, "rb").read(1024).translate(None, TEXT_CHARS))
+    """Check if a file is a text file by looking at its content."""
+    try:
+        with open(filepath, "rb") as f:
+            return not bool(f.read(1024).translate(None, TEXT_CHARS))
+    except Exception:
+        return False
 
 
 def get_text_files(directory=".", ignore_paths=[]):
