@@ -40,13 +40,10 @@ class TestIgnoreLogic(unittest.TestCase):
         nested_dir = os.path.join(frontend_dir, "src", "components")
         nested_gitignore = os.path.join(nested_dir, ".gitignore")
 
-        # Create directories
-        os.makedirs(frontend_dir)
-        os.makedirs(backend_dir)
-        os.makedirs(nested_dir)
-        
-        os.makedirs(frontend_dir)
-        os.makedirs(backend_dir)
+        # Create directories with exist_ok=True to prevent FileExistsError
+        os.makedirs(frontend_dir, exist_ok=True)
+        os.makedirs(backend_dir, exist_ok=True)
+        os.makedirs(nested_dir, exist_ok=True)
         
         # Create .gitignore files
         with open(root_gitignore, 'w') as f:
