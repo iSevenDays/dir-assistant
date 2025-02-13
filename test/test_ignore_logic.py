@@ -41,9 +41,9 @@ class TestIgnoreLogic(unittest.TestCase):
         nested_gitignore = os.path.join(nested_dir, ".gitignore")
 
         # Create directories with exist_ok=True to prevent FileExistsError
-        os.makedirs(frontend_dir, exist_ok=True)
-        os.makedirs(backend_dir, exist_ok=True)
-        os.makedirs(nested_dir, exist_ok=True)
+        os.makedirs(frontend_dir, mode=0o777, exist_ok=True)
+        os.makedirs(backend_dir, mode=0o777, exist_ok=True)
+        os.makedirs(nested_dir, mode=0o777, exist_ok=True)
         
         # Create .gitignore files
         with open(root_gitignore, 'w') as f:
@@ -73,7 +73,7 @@ class TestIgnoreLogic(unittest.TestCase):
         
         for file_path in test_files:
             full_path = os.path.join(self.test_dir, file_path)
-            os.makedirs(os.path.dirname(full_path), exist_ok=True)
+            os.makedirs(os.path.dirname(full_path), mode=0o777, exist_ok=True)
             with open(full_path, 'w') as f:
                 f.write("test content")
         
