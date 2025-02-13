@@ -87,19 +87,6 @@ class IgnoreHandler:
             pattern = pattern[:-1]
         return pattern
 
-    def _normalize_pattern(self, pattern: str) -> str:
-        """Normalize a pattern for consistent matching."""
-        # Convert to forward slashes
-        pattern = pattern.replace("\\", "/")
-        # Remove leading/trailing whitespace
-        pattern = pattern.strip()
-        # Handle special cases
-        if pattern.startswith("./"):
-            pattern = pattern[2:]
-        if pattern.endswith("/"):
-            pattern = pattern[:-1]
-        return pattern
-
     def is_ignored(self, path: str, base_dir: Optional[str] = None) -> bool:
         """Check if a path should be ignored.
         

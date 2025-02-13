@@ -39,6 +39,11 @@ class TestIgnoreLogic(unittest.TestCase):
         backend_gitignore = os.path.join(backend_dir, ".gitignore")
         nested_dir = os.path.join(frontend_dir, "src", "components")
         nested_gitignore = os.path.join(nested_dir, ".gitignore")
+
+        # Create directories
+        os.makedirs(frontend_dir)
+        os.makedirs(backend_dir)
+        os.makedirs(nested_dir)
         
         os.makedirs(frontend_dir)
         os.makedirs(backend_dir)
@@ -111,7 +116,8 @@ class TestIgnoreLogic(unittest.TestCase):
     def test_gitignore_precedence(self):
         """Test that more specific .gitignore files take precedence."""
         # Create test directory structure with nested .gitignore files
-        os.makedirs(os.path.join(self.test_dir, "src/special"))
+        special_dir = os.path.join(self.test_dir, "src/special")
+        os.makedirs(special_dir)
         
         # Root .gitignore ignores all .txt files
         with open(os.path.join(self.test_dir, ".gitignore"), 'w') as f:
@@ -125,6 +131,13 @@ class TestIgnoreLogic(unittest.TestCase):
             "src/special/important.txt",  # Should NOT be ignored due to negation
             "src/special/other.txt",  # Should be ignored
         ]
+        
+        # Create the files
+        for file_path in test_files:
+            full_path = os.path.join(self.test_dir, file_path)
+            os.makedirs(os.path.dirname(full_path), exist_ok=True)
+            with open(full_path, 'w') as f:
+                f.write("test content")
         
         # Create test files
         test_files = [
@@ -150,15 +163,20 @@ class TestIgnoreLogic(unittest.TestCase):
         """Test different glob pattern combinations"""
         test_cases = [
             # Single star patterns
-            ("src/test123/file.txt", "test*/file.txt", True),
-            ("src/test/file123.txt", "test/*.txt", True),
-            ("src/test/subdir/file.txt", "test/*.txt", False),
+            ("src/test123/file.txt", "src/test*/file.txt", True),
+            ("src/test/file123.txt", "src/test/*.txt", True),
+            ("src/test/subdir/file.txt", "src/test/*.txt", False),
             
             # Double star patterns
             ("very/deep/node_modules/package.json", "**/node_modules/**", True),
             ("node_modules/package.json", "**/node_modules/**", True),
             ("src/lib/node_modules/deep/pkg/file.js", "**/node_modules/**", True),
             ("src/nodemodules/file.js", "**/node_modules/**", False),
+            
+            # Complex patterns
+            ("src/test/file.txt", "src/**/file.txt", True),
+            ("src/deep/nested/file.txt", "src/**/file.txt", True),
+            ("other/file.txt", "src/**/file.txt", False),
         ]
         for path, pattern, expected in test_cases:
             with self.subTest(path=path, pattern=pattern):
