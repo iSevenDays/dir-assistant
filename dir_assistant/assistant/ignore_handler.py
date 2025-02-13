@@ -70,12 +70,9 @@ class IgnoreHandler:
             except IOError as e:
                 logger.error(f"Failed to read .gitignore: {e}")
         
-        # Initialize PathSpec with all patterns and case sensitivity
-        self._spec = PathSpec.from_lines(
-            GitWildMatchPattern, 
-            self.patterns,
-            case_sensitive=case_sensitive
-        )
+        # Initialize PathSpec with all patterns
+        self._spec = PathSpec.from_lines(GitWildMatchPattern, self.patterns)
+        self.case_sensitive = case_sensitive
 
     def _normalize_pattern(self, pattern: str) -> str:
         """Normalize a pattern for consistent matching."""
@@ -129,5 +126,13 @@ class IgnoreHandler:
         if not rel_path:
             return False
             
-        # Use PathSpec for matching
+        # Handle case sensitivity
+        if not self.case_sensitive:
+            rel_path = rel_path.lower()
+            # Create case-insensitive patterns if needed
+            patterns = [p.lower() for p in self.patterns]
+            spec = PathSpec.from_lines(GitWildMatchPattern, patterns)
+            return spec.match_file(rel_path)
+            
+        # Use original PathSpec for case-sensitive matching
         return self._spec.match_file(rel_path)
