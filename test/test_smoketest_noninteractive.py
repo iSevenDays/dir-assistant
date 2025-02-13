@@ -2,9 +2,12 @@ import os
 import pty
 import subprocess
 import time
+import pytest
 from test.utils import ALT_ENTER, read_until, send_input
 
 
+@pytest.mark.skip(reason="Interactive test requiring OpenAI API key and manual intervention")
+@pytest.mark.interactive
 def test_smoketest_noninteractive():
     """
     Smoke test for the dir-assistant CLI application in a virtual terminal environment.

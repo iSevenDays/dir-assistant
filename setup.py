@@ -21,7 +21,7 @@ setup(
     packages=find_packages(),
     install_requires=[
         "llama-cpp-python",
-        "faiss-cpu",
+        "faiss-cpu>=1.7.4",
         "litellm",
         "colorama",
         "sqlitedict",

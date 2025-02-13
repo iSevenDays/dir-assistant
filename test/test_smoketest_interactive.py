@@ -2,16 +2,20 @@ import os
 import pty
 import subprocess
 import time
+import pytest
 from test.utils import ALT_ENTER, read_until, send_input
 
 
+@pytest.mark.skip(reason="Interactive test requiring OpenAI API key and manual intervention")
+@pytest.mark.interactive
 def test_smoketest_interactive():
     """
     Smoke test for the dir-assistant CLI application in a virtual terminal environment.
     This test verifies that dir-assistant can handle multi-line prompts submitted via Alt-Enter,
     allowing newlines in user input. It uses a pseudo-terminal to simulate user interaction.
 
-    - Requires -s pytest flag to run
+    To run this test:
+    - Use pytest -s -v -m interactive
     - Requires OPENAI_API_KEY configured
     """
 
