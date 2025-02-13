@@ -84,6 +84,9 @@ class IgnoreHandler:
                                             # Relative pattern applies to this dir and subdirs
                                             pattern = os.path.join(rel_path, line)
                                         pattern = pattern.replace('\\', '/')
+                                        # Ensure patterns ending with * are handled correctly
+                                        if pattern.endswith('*'):
+                                            pattern = pattern[:-1] + '**'
                                         self.patterns.append(pattern)
                                     else:
                                         # Root .gitignore patterns
