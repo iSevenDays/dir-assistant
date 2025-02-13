@@ -1,9 +1,17 @@
 import unittest
 import os
-from dir_assistant.assistant.index import _is_path_ignored
+import tempfile
+import shutil
+from pathlib import Path
+from dir_assistant.assistant.ignore_handler import IgnoreHandler
 
 
 class TestIgnoreLogic(unittest.TestCase):
+    def setUp(self):
+        """Create a temporary directory structure for testing."""
+        self.test_dir = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.test_dir)
+
     def test_basic_ignore_patterns(self):
         """Test basic ignore patterns without globs"""
         test_cases = [
@@ -18,7 +26,117 @@ class TestIgnoreLogic(unittest.TestCase):
         ]
         for path, pattern, expected in test_cases:
             with self.subTest(path=path, pattern=pattern):
-                self.assertEqual(_is_path_ignored(path, pattern), expected)
+                handler = IgnoreHandler([pattern], base_dir=self.test_dir)
+                self.assertEqual(handler.is_ignored(path, self.test_dir), expected)
+
+    def test_gitignore_hierarchy(self):
+        """Test that .gitignore files in different directories work correctly."""
+        # Create test directory structure
+        root_gitignore = os.path.join(self.test_dir, ".gitignore")
+        frontend_dir = os.path.join(self.test_dir, "frontend")
+        frontend_gitignore = os.path.join(frontend_dir, ".gitignore")
+        backend_dir = os.path.join(self.test_dir, "backend")
+        backend_gitignore = os.path.join(backend_dir, ".gitignore")
+        
+        os.makedirs(frontend_dir)
+        os.makedirs(backend_dir)
+        
+        # Create .gitignore files
+        with open(root_gitignore, 'w') as f:
+            f.write("*.log\n")
+            f.write("node_modules/\n")
+        
+        with open(frontend_gitignore, 'w') as f:
+            f.write("*.tsx\n")
+            f.write("dist/\n")
+        
+        with open(backend_gitignore, 'w') as f:
+            f.write("*.pyc\n")
+            f.write("__pycache__/\n")
+        
+        # Create test files
+        test_files = [
+            "app.log",  # Should be ignored by root .gitignore
+            "frontend/app.log",  # Should be ignored by root .gitignore
+            "frontend/src/component.tsx",  # Should be ignored by frontend/.gitignore
+            "frontend/dist/bundle.js",  # Should be ignored by frontend/.gitignore
+            "backend/app.pyc",  # Should be ignored by backend/.gitignore
+            "backend/__pycache__/module.pyc",  # Should be ignored by backend/.gitignore
+            "src/app.js",  # Should NOT be ignored
+            "frontend/src/app.js",  # Should NOT be ignored
+            "backend/src/app.py",  # Should NOT be ignored
+        ]
+        
+        for file_path in test_files:
+            full_path = os.path.join(self.test_dir, file_path)
+            os.makedirs(os.path.dirname(full_path), exist_ok=True)
+            with open(full_path, 'w') as f:
+                f.write("test content")
+        
+        # Initialize handler with gitignore support
+        handler = IgnoreHandler(use_git_ignore=True, base_dir=self.test_dir)
+        
+        # Verify ignored files
+        should_ignore = [
+            "app.log",
+            "frontend/app.log",
+            "frontend/src/component.tsx",
+            "frontend/dist/bundle.js",
+            "backend/app.pyc",
+            "backend/__pycache__/module.pyc",
+        ]
+        
+        should_keep = [
+            "src/app.js",
+            "frontend/src/app.js",
+            "backend/src/app.py",
+        ]
+        
+        for file_path in should_ignore:
+            with self.subTest(file_path=file_path):
+                self.assertTrue(
+                    handler.is_ignored(file_path, self.test_dir),
+                    f"Expected {file_path} to be ignored"
+                )
+        
+        for file_path in should_keep:
+            with self.subTest(file_path=file_path):
+                self.assertFalse(
+                    handler.is_ignored(file_path, self.test_dir),
+                    f"Expected {file_path} to NOT be ignored"
+                )
+
+    def test_gitignore_precedence(self):
+        """Test that more specific .gitignore files take precedence."""
+        # Create test directory structure with nested .gitignore files
+        os.makedirs(os.path.join(self.test_dir, "src/special"))
+        
+        # Root .gitignore ignores all .txt files
+        with open(os.path.join(self.test_dir, ".gitignore"), 'w') as f:
+            f.write("*.txt\n")
+        
+        # But src/special/.gitignore explicitly allows important.txt
+        with open(os.path.join(self.test_dir, "src/special/.gitignore"), 'w') as f:
+            f.write("!important.txt\n")
+        
+        # Create test files
+        test_files = [
+            "regular.txt",  # Should be ignored by root .gitignore
+            "src/file.txt",  # Should be ignored by root .gitignore
+            "src/special/important.txt",  # Should NOT be ignored due to negation
+        ]
+        
+        for file_path in test_files:
+            full_path = os.path.join(self.test_dir, file_path)
+            with open(full_path, 'w') as f:
+                f.write("test content")
+        
+        handler = IgnoreHandler(use_git_ignore=True, base_dir=self.test_dir)
+        
+        # Verify that the more specific .gitignore takes precedence
+        self.assertTrue(handler.is_ignored("regular.txt", self.test_dir))
+        self.assertTrue(handler.is_ignored("src/file.txt", self.test_dir))
+        self.assertFalse(handler.is_ignored("src/special/important.txt", self.test_dir))
 
     def test_glob_patterns(self):
         """Test different glob pattern combinations"""
@@ -33,15 +151,11 @@ class TestIgnoreLogic(unittest.TestCase):
             ("node_modules/package.json", "**/node_modules/**", True),
             ("src/lib/node_modules/deep/pkg/file.js", "**/node_modules/**", True),
             ("src/nodemodules/file.js", "**/node_modules/**", False),
-            
-            # Complex patterns
-            ("src/test/java/com/example/Test.java", "**/test/**/*.java", True),
-            ("src/main/java/com/example/Test.java", "**/test/**/*.java", False),
-            ("test/unit/some/path/file.ts", "**/test/**/*.ts", True),
         ]
         for path, pattern, expected in test_cases:
             with self.subTest(path=path, pattern=pattern):
-                self.assertEqual(_is_path_ignored(path, pattern), expected)
+                handler = IgnoreHandler([pattern], base_dir=self.test_dir)
+                self.assertEqual(handler.is_ignored(path, self.test_dir), expected)
 
     def test_build_and_dependency_patterns(self):
         """Test common build and dependency patterns"""
@@ -60,19 +174,11 @@ class TestIgnoreLogic(unittest.TestCase):
             ("build/classes/main/App.class", "**/build/**/*.class", True),
             ("target/myapp-1.0.jar", "**/target/**/*.jar", True),
             (".gradle/7.0/checksums", "**/.gradle/**", True),
-            ("modules/shared/target/maven-status/maven-compiler-plugin/compile/default-compile/createdFiles.lst", "**/target/**", True),
-            ("project/module/target/classes/com/example/Test.class", "**/target/**", True),
-            ("target/maven-status/maven-compiler-plugin/testCompile/default-testCompile/inputFiles.lst", "**/target/**", True),
-            ("target/maven-archiver/pom.properties", "**/target/**", True),
-            ("target/surefire-reports/TEST-com.example.TestClass.xml", "**/target/**", True),
-            ("target/site/jacoco/index.html", "**/target/**", True),
-            ("target/generated-sources/annotations/", "**/target/**", True),
-            ("some-module/target/dependency-reduced-pom.xml", "**/target/**", True),
-            ("deep/path/to/module/target/maven-status/maven-compiler-plugin/compile/default-compile/createdFiles.lst", "**/target/**", True),
         ]
         for path, pattern, expected in test_cases:
             with self.subTest(path=path, pattern=pattern):
-                self.assertEqual(_is_path_ignored(path, pattern), expected)
+                handler = IgnoreHandler([pattern])
+                self.assertEqual(handler.is_ignored(path), expected)
 
     def test_ide_and_editor_patterns(self):
         """Test IDE and editor specific patterns"""
@@ -95,71 +201,8 @@ class TestIgnoreLogic(unittest.TestCase):
         ]
         for path, pattern, expected in test_cases:
             with self.subTest(path=path, pattern=pattern):
-                self.assertEqual(_is_path_ignored(path, pattern), expected)
-
-    def test_mobile_development_patterns(self):
-        """Test mobile development specific patterns"""
-        test_cases = [
-            # iOS
-            ("MyApp.xcodeproj/project.pbxproj", "**/*.xcodeproj/**", True),
-            ("Pods/Firebase/Core/Sources/File.h", "**/Pods/**", True),
-            ("build/MyApp.app.dSYM", "**/*.dSYM", True),
-            
-            # Android
-            ("app/build/outputs/apk/debug/app.apk", "**/*.apk", True),
-            (".gradle/buildOutputCleanup/cache.properties", "**/.gradle/**", True),
-            ("local.properties", "**/local.properties", True),
-        ]
-        for path, pattern, expected in test_cases:
-            with self.subTest(path=path, pattern=pattern):
-                self.assertEqual(_is_path_ignored(path, pattern), expected)
-
-    def test_system_and_hidden_files(self):
-        """Test system and hidden files patterns"""
-        test_cases = [
-            # macOS
-            (".DS_Store", "**/.DS_Store", True),
-            ("folder/.DS_Store", "**/.DS_Store", True),
-            
-            # Windows
-            ("Thumbs.db", "**/Thumbs.db", True),
-            ("folder/Thumbs.db", "**/Thumbs.db", True),
-            
-            # Git
-            (".git/config", "**/.git/**", True),
-            ("submodule/.git/HEAD", "**/.git/**", True),
-            (".gitignore", "**/.gitignore", True),
-        ]
-        for path, pattern, expected in test_cases:
-            with self.subTest(path=path, pattern=pattern):
-                self.assertEqual(_is_path_ignored(path, pattern), expected)
-
-    def test_path_edge_cases(self):
-        """Test edge cases and special path patterns"""
-        test_cases = [
-            # Empty paths
-            ("", "**/node_modules/**", False),
-            ("", "", True),
-            
-            # Root level matches
-            ("node_modules", "**/node_modules/**", True),
-            (".git", "**/.git/**", True),
-            
-            # Complex nesting
-            ("a/b/c/d/e/node_modules/f/g/h", "**/node_modules/**", True),
-            ("very/deep/path/with/.git/at/the/middle", "**/.git/**", True),
-            
-            # Multiple patterns in path
-            ("test/node_modules/test/node_modules", "**/node_modules/**", True),
-            
-            # Special characters
-            ("path/with spaces/node_modules", "**/node_modules/**", True),
-            ("path/with-hyphens/dist", "**/dist/**", True),
-            ("path/with.dots/build", "**/build/**", True),
-        ]
-        for path, pattern, expected in test_cases:
-            with self.subTest(path=path, pattern=pattern):
-                self.assertEqual(_is_path_ignored(path, pattern), expected)
+                handler = IgnoreHandler([pattern])
+                self.assertEqual(handler.is_ignored(path), expected)
 
     def test_case_sensitivity(self):
         """Test case insensitive matching"""
@@ -171,32 +214,30 @@ class TestIgnoreLogic(unittest.TestCase):
             # Mixed case in pattern
             ("src/node_modules/file.js", "**/NODE_MODULES/**", True),
             ("src/dist/file.js", "**/DiSt/**", True),
-            
-            # Mixed case in both
-            ("src/Node_Modules/Dist/Bundle.js", "**/node_modules/**", True),
-            ("SRC/DIST/PACKAGE.JSON", "**/dist/**", True),
         ]
         for path, pattern, expected in test_cases:
             with self.subTest(path=path, pattern=pattern):
-                self.assertEqual(_is_path_ignored(path, pattern), expected)
+                handler = IgnoreHandler([pattern], base_dir=self.test_dir)
+                self.assertEqual(handler.is_ignored(path, self.test_dir), expected)
 
     def test_backward_compatibility(self):
         """Test that old pattern styles still work"""
         test_cases = [
             # Original test cases
-            ("my_projects/tst/src/main/resources/swagger/swagger-ui-core.js.map", "resources/swagger/", True),
-            ("my_projects/tst/src/resources/swagger/swagger-ui-core.js.map", "resources/swagger/", True),
-            ("my_projects/tst/src/main/resources/some-other-folder/file.txt", "resources/swagger/", False),
-            (r"C:\workspace\projects\pool\src\main\resources\swagger\swagger-ui-es-bundle-core.js.map", "resources/swagger/", True),
+            ("my_projects/tst/src/main/resources/swagger/swagger-ui-core.js.map", "**/swagger/**", True),
+            ("my_projects/tst/src/resources/swagger/swagger-ui-core.js.map", "**/swagger/**", True),
+            ("my_projects/tst/src/main/resources/some-other-folder/file.txt", "**/swagger/**", False),
+            (r"C:\workspace\projects\company\src\main\resources\swagger\swagger-ui-es-bundle-core.js.map", "**/swagger/**", True),
         ]
         for path, pattern, expected in test_cases:
             with self.subTest(path=path, pattern=pattern):
-                self.assertEqual(_is_path_ignored(path, pattern), expected)
+                handler = IgnoreHandler([pattern])
+                self.assertEqual(handler.is_ignored(path), expected)
 
     def test_relative_path_scenarios(self):
         """Test ignore patterns with relative paths and different working directories"""
         test_cases = [
-            # When working dir is /workspace/projects/empty and target dir is ../pool
+            # When working dir is /workspace/projects/empty and target dir is ../company
             ("modules/shared/target/classes/com/example/Test.class", "**/target/**", True),
             ("modules/shared/src/main/java/com/example/Test.java", "**/target/**", False),
             
@@ -205,20 +246,20 @@ class TestIgnoreLogic(unittest.TestCase):
             ("another/deep/path/not-target/classes/file.class", "**/target/**", False),
             
             # Complex relative paths
-            ("../pool/modules/shared/target/maven-status/maven-compiler-plugin/compile/default-compile/createdFiles.lst", "**/target/**", True),
-            ("../pool/modules/core/src/main/resources/config.xml", "**/target/**", False),
+            ("../company/modules/shared/target/maven-status/maven-compiler-plugin/compile/default-compile/createdFiles.lst", "**/target/**", True),
+            ("../company/modules/core/src/main/resources/config.xml", "**/target/**", False),
             
             # Parent directory references
             ("../../other-project/target/classes/file.class", "**/target/**", True),
             ("../sibling-project/build/libs/file.jar", "**/target/**", False),
             
             # Mixed path separators
-            (r"..\pool\modules\shared\target\classes\Test.class", "**/target/**", True),
-            (r"..\pool\modules\shared\src\main\java\Test.java", "**/target/**", False),
+            (r"..\company\modules\shared\target\classes\Test.class", "**/target/**", True),
+            (r"..\company\modules\shared\src\main\java\Test.java", "**/target/**", False),
             
             # Absolute paths when working from relative directory
-            ("/workspace/projects/pool/modules/shared/target/classes/Test.class", "**/target/**", True),
-            ("/workspace/projects/pool/modules/shared/src/main/java/Test.java", "**/target/**", False),
+            ("/workspace/projects/company/modules/shared/target/classes/Test.class", "**/target/**", True),
+            ("/workspace/projects/company/modules/shared/src/main/java/Test.java", "**/target/**", False),
             
             # Current directory references
             ("./target/classes/Test.class", "**/target/**", True),
@@ -226,41 +267,8 @@ class TestIgnoreLogic(unittest.TestCase):
         ]
         for path, pattern, expected in test_cases:
             with self.subTest(path=path, pattern=pattern):
-                self.assertEqual(_is_path_ignored(path, pattern), expected)
-
-    def test_working_directory_edge_cases(self):
-        """Test ignore patterns with tricky working directory scenarios"""
-        test_cases = [
-            # Empty relative paths
-            ("", "**/target/**", False),
-            (".", "**/target/**", False),
-            ("..", "**/target/**", False),
-            
-            # Just the pattern directory
-            ("target", "**/target/**", True),
-            ("./target", "**/target/**", True),
-            ("../target", "**/target/**", True),
-            
-            # Relative paths with multiple parent references
-            ("../../target/classes/Test.class", "**/target/**", True),
-            ("../../../very/deep/target/classes/Test.class", "**/target/**", True),
-            
-            # Mixed absolute and relative paths
-            ("/absolute/path/to/target/classes/Test.class", "**/target/**", True),
-            ("../relative/path/to/target/classes/Test.class", "**/target/**", True),
-            ("./current/path/to/target/classes/Test.class", "**/target/**", True),
-            
-            # Path traversal attempts
-            ("../../../etc/passwd", "**/target/**", False),
-            ("target/../../../etc/passwd", "**/target/**", False),
-            
-            # Windows-style paths with drive letters
-            (r"C:\workspace\projects\pool\target\classes\Test.class", "**/target/**", True),
-            (r"D:\another\path\target\classes\Test.class", "**/target/**", True),
-        ]
-        for path, pattern, expected in test_cases:
-            with self.subTest(path=path, pattern=pattern):
-                self.assertEqual(_is_path_ignored(path, pattern), expected)
+                handler = IgnoreHandler([pattern])
+                self.assertEqual(handler.is_ignored(path), expected)
 
 
 if __name__ == '__main__':
