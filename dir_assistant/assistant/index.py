@@ -6,6 +6,7 @@ from colorama import Fore, Style
 from faiss import IndexFlatL2
 from sqlitedict import SqliteDict
 from concurrent.futures import ThreadPoolExecutor
+import fnmatch
 
 from dir_assistant.cli.config import HISTORY_FILENAME, STORAGE_PATH, CACHE_PATH, get_file_path
 
@@ -55,31 +56,45 @@ def get_text_files(directory=".", ignore_paths=[]):
 def _is_path_ignored(filepath, ignore_pattern):
     """
     Check if a filepath matches an ignore pattern.
-    Handles both file and directory patterns correctly.
+    Supports glob patterns:
+    - ** matches zero or more directories
+    - * matches zero or more characters within a path component
+    - ? matches exactly one character within a path component
+
+    The matching is done in a case-insensitive manner and will return True
+    if any contiguous subsequence of the filepath components matches the
+    ignore pattern.
     """
-    # Normalize both paths and convert to lowercase for case-insensitive matching
-    norm_filepath = os.path.normpath(filepath).lower()
-    # Handle both forward and backward slashes in ignore pattern
+    # Normalize paths for case-insensitive matching and consistent separators
+    norm_filepath = os.path.normpath(filepath).lower().replace('\\', '/')
     norm_ignore = os.path.normpath(ignore_pattern.rstrip('/')).lower().replace('\\', '/')
-    
-    # Split paths into components, handling both slash types
-    filepath_parts = norm_filepath.replace('\\', '/').split('/')
-    ignore_parts = norm_ignore.split('/')
-    
-    # For each component in the filepath, check if it matches the ignore pattern
-    for i in range(len(filepath_parts)):
-        remaining_parts = filepath_parts[i:]
-        # Check if we have enough remaining parts to match the ignore pattern
-        if len(remaining_parts) >= len(ignore_parts):
-            # Check if the next N components match the ignore pattern
-            matches = True
-            for j in range(len(ignore_parts)):
-                if remaining_parts[j] != ignore_parts[j]:
-                    matches = False
-                    break
-            if matches:
+
+    # Split paths into components
+    fp_parts = norm_filepath.split('/')
+    pat_parts = norm_ignore.split('/')
+
+    # Recursive helper function for matching
+    def _match_recursive(fp, pat):
+        if not pat:
+            return True
+        if not fp:
+            return all(part == '**' for part in pat)
+        if pat[0] == '**':
+            # Option 1: skip '**'
+            if _match_recursive(fp, pat[1:]):
                 return True
-    
+            # Option 2: consume one directory and try again
+            return _match_recursive(fp[1:], pat)
+        else:
+            if fnmatch.fnmatch(fp[0], pat[0]):
+                return _match_recursive(fp[1:], pat[1:])
+            else:
+                return False
+
+    # Try matching at any position in the filepath
+    for i in range(len(fp_parts)):
+        if _match_recursive(fp_parts[i:], pat_parts):
+            return True
     return False
 
 

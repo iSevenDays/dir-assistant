@@ -34,5 +34,55 @@ class TestIgnoreLogic(unittest.TestCase):
         pattern = "resources/swagger/"
         self.assertTrue(_is_path_ignored(path, pattern))
 
+    # New tests for glob pattern matching
+    def test_double_star_pattern(self):
+        # Test ** pattern matching any number of directories
+        path = "modules/java/org/company/core/swift/file.swift"
+        pattern = "**/core/swift/**"
+        self.assertTrue(_is_path_ignored(path, pattern))
+
+    def test_double_star_no_match(self):
+        # Test ** pattern not matching when pattern doesn't exist in path
+        path = "modules/company/org/project/storage/other/ios/file.swift"
+        pattern = "**/core/ios/**"
+        self.assertFalse(_is_path_ignored(path, pattern))
+
+    def test_single_star_pattern(self):
+        # Test * pattern matching within a directory name
+        path = "src/test/java/com/example/test123/MyTest.java"
+        pattern = "test*/java"
+        self.assertTrue(_is_path_ignored(path, pattern))
+
+    def test_complex_pattern(self):
+        # Test combination of * and ** patterns
+        path = "src/components/java/company/storage/main/android/utils/Helper.java"
+        pattern = "**/main/android/**/*.java"
+        self.assertTrue(_is_path_ignored(path, pattern))
+
+    def test_double_star_empty_match(self):
+        # Test ** matching zero directories
+        path = "core/ios/file.swift"
+        pattern = "**/core/ios/**"
+        self.assertTrue(_is_path_ignored(path, pattern))
+
+    def test_double_star_at_end(self):
+        # Test ** at the end of pattern
+        path = "src/main/java/core/ios/deep/nested/file.swift"
+        pattern = "core/ios/**"
+        self.assertTrue(_is_path_ignored(path, pattern))
+
+    def test_double_star_at_start(self):
+        # Test ** at the start of pattern
+        path = "very/deep/path/core/ios/file.swift"
+        pattern = "**/core/ios"
+        self.assertTrue(_is_path_ignored(path, pattern))
+
+    def test_multiple_double_stars(self):
+        # Test multiple ** patterns
+        path = "src/test/java/core/something/ios/utils/file.swift"
+        pattern = "**/core/**/ios/**"
+        self.assertTrue(_is_path_ignored(path, pattern))
+
+
 if __name__ == '__main__':
     unittest.main() 
