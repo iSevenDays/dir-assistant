@@ -5,6 +5,7 @@ import numpy as np
 from colorama import Fore, Style
 from faiss import IndexFlatL2
 from sqlitedict import SqliteDict
+from concurrent.futures import ThreadPoolExecutor
 
 from dir_assistant.cli.config import HISTORY_FILENAME, STORAGE_PATH, CACHE_PATH, get_file_path
 
@@ -144,29 +145,36 @@ def create_file_index(
     chunks = []
     embeddings_list = []
     with SqliteDict(cache_db, autocommit=True) as cache:
+        # Separate cached and non-cached files
+        files_to_process = {}
         for file_info in files_with_contents:
             filepath = file_info["filepath"]
             cached_chunks = cache.get(f"{filepath}_chunks")
             if cached_chunks and cached_chunks["mtime"] == file_info["mtime"]:
                 if verbose:
-                    print(
-                        f"{Fore.LIGHTBLACK_EX}Using cached embeddings for {filepath}{Style.RESET_ALL}"
-                    )
+                    print(f"Using cached embeddings for {filepath}")
                 chunks.extend(cached_chunks["chunks"])
                 embeddings_list.extend(cached_chunks["embeddings"])
-                continue
+            else:
+                # Add to processing batch
+                files_to_process[filepath] = file_info["contents"]
 
-            contents = file_info["contents"]
-            file_chunks, file_embeddings = process_file(
-                embed, filepath, contents, embed_chunk_size, verbose
+        # Process non-cached files concurrently
+        if files_to_process:
+            file_chunks, file_embeddings = process_files_concurrently(
+                embed, files_to_process, embed_chunk_size, verbose
             )
             chunks.extend(file_chunks)
             embeddings_list.extend(file_embeddings)
-            cache[f"{filepath}_chunks"] = {
-                "chunks": file_chunks,
-                "embeddings": file_embeddings,
-                "mtime": file_info["mtime"],
-            }
+            
+            # Update cache for processed files
+            for filepath, contents in files_to_process.items():
+                file_info = next(fi for fi in files_with_contents if fi["filepath"] == filepath)
+                cache[f"{filepath}_chunks"] = {
+                    "chunks": [chunk for chunk in file_chunks if chunk["filepath"] == filepath],
+                    "embeddings": [emb for emb, chunk in zip(file_embeddings, file_chunks) if chunk["filepath"] == filepath],
+                    "mtime": file_info["mtime"],
+                }
 
     if verbose:
         print(f"{Fore.LIGHTBLACK_EX}Creating index from embeddings...{Style.RESET_ALL}")
@@ -265,3 +273,26 @@ def clear(args, config_dict):
             sys.stdout.write(f"Deleted {file}\n")
         else:
             sys.stdout.write(f"{file} does not exist.\n")
+
+
+def process_files_concurrently(embed, files, embed_chunk_size, verbose):
+    """Process multiple files in parallel using thread workers"""
+    all_chunks = []
+    all_embeddings = []
+    
+    with ThreadPoolExecutor(max_workers=10) as executor:
+        # Create list of tasks
+        tasks = [
+            (embed, filepath, contents, embed_chunk_size, verbose)
+            for filepath, contents in files.items()
+        ]
+        
+        # Process files in parallel
+        results = executor.map(lambda p: process_file(*p), tasks)
+        
+        # Collect results
+        for file_chunks, file_embeddings in results:
+            all_chunks.extend(file_chunks)
+            all_embeddings.extend(file_embeddings)
+            
+    return all_chunks, all_embeddings
