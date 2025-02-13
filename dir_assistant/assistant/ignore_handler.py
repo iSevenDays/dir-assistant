@@ -49,12 +49,16 @@ class IgnoreHandler:
             if isinstance(ignore_paths, str) and os.path.isfile(ignore_paths):
                 try:
                     with open(ignore_paths, 'r') as f:
-                        self.patterns.extend(line.strip() for line in f 
-                                          if line.strip() and not line.startswith('#'))
+                        self.patterns.extend(
+                            self._normalize_pattern(line) for line in f
+                            if line.strip() and not line.startswith('#')
+                        )
                 except IOError as e:
                     logger.error(f"Failed to read ignore file {ignore_paths}: {e}")
             else:
-                self.patterns.extend(p for p in ignore_paths if p.strip())
+                self.patterns.extend(
+                    self._normalize_pattern(p) for p in ignore_paths if p.strip()
+                )
                 
         # Load patterns from gitignore if enabled
         if use_git_ignore and os.path.isfile(os.path.join(self.base_dir, self.GITIGNORE_FILE)):
@@ -67,6 +71,19 @@ class IgnoreHandler:
         
         # Initialize PathSpec with all patterns
         self._spec = PathSpec.from_lines(GitWildMatchPattern, self.patterns)
+
+    def _normalize_pattern(self, pattern: str) -> str:
+        """Normalize a pattern for consistent matching."""
+        # Convert to forward slashes
+        pattern = pattern.replace("\\", "/")
+        # Remove leading/trailing whitespace
+        pattern = pattern.strip()
+        # Handle special cases
+        if pattern.startswith("./"):
+            pattern = pattern[2:]
+        if pattern.endswith("/"):
+            pattern = pattern[:-1]
+        return pattern
 
     def is_ignored(self, path: str, base_dir: Optional[str] = None) -> bool:
         """Check if a path should be ignored.

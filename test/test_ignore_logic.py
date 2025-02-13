@@ -114,10 +114,15 @@ class TestIgnoreLogic(unittest.TestCase):
         # Root .gitignore ignores all .txt files
         with open(os.path.join(self.test_dir, ".gitignore"), 'w') as f:
             f.write("*.txt\n")
+            f.write("!src/special/important.txt\n")  # Explicit allow
         
-        # But src/special/.gitignore explicitly allows important.txt
-        with open(os.path.join(self.test_dir, "src/special/.gitignore"), 'w') as f:
-            f.write("!important.txt\n")
+        # Create test files
+        test_files = [
+            "regular.txt",  # Should be ignored by root .gitignore
+            "src/file.txt",  # Should be ignored by root .gitignore
+            "src/special/important.txt",  # Should NOT be ignored due to negation
+            "src/special/other.txt",  # Should be ignored
+        ]
         
         # Create test files
         test_files = [
@@ -137,6 +142,7 @@ class TestIgnoreLogic(unittest.TestCase):
         self.assertTrue(handler.is_ignored("regular.txt", self.test_dir))
         self.assertTrue(handler.is_ignored("src/file.txt", self.test_dir))
         self.assertFalse(handler.is_ignored("src/special/important.txt", self.test_dir))
+        self.assertTrue(handler.is_ignored("src/special/other.txt", self.test_dir))
 
     def test_glob_patterns(self):
         """Test different glob pattern combinations"""
