@@ -62,13 +62,27 @@ class IgnoreHandler:
                 )
                 
         # Load patterns from gitignore if enabled
-        if use_git_ignore and os.path.isfile(os.path.join(self.base_dir, self.GITIGNORE_FILE)):
-            try:
-                with open(os.path.join(self.base_dir, self.GITIGNORE_FILE)) as f:
-                    self.patterns.extend(line.strip() for line in f
-                                      if line.strip() and not line.startswith('#'))
-            except IOError as e:
-                logger.error(f"Failed to read .gitignore: {e}")
+        if use_git_ignore:
+            # Walk directory tree and find all .gitignore files
+            for root, dirs, files in os.walk(self.base_dir):
+                if self.GITIGNORE_FILE in files:
+                    gitignore_path = os.path.join(root, self.GITIGNORE_FILE)
+                    try:
+                        with open(gitignore_path, 'r') as f:
+                            # Add patterns with path relative to base_dir
+                            rel_path = os.path.relpath(root, self.base_dir)
+                            for line in f:
+                                line = line.strip()
+                                if line and not line.startswith('#'):
+                                    # Make pattern relative to base_dir
+                                    if rel_path != '.':
+                                        pattern = os.path.join(rel_path, line)
+                                        pattern = pattern.replace('\\', '/')
+                                        self.patterns.append(pattern)
+                                    else:
+                                        self.patterns.append(line)
+                    except IOError as e:
+                        logger.error(f"Failed to read {gitignore_path}: {e}")
         
         # Initialize PathSpec with all patterns
         self._spec = PathSpec.from_lines(GitWildMatchPattern, self.patterns)
