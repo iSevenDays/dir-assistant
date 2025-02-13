@@ -26,30 +26,40 @@ def is_text_file(filepath):
 
 def get_text_files(directory=".", ignore_paths=[]):
     text_files = []
+    # Convert target directory to absolute path
     base_dir = os.path.abspath(directory)
-    for root, dirs, files in os.walk(directory):
-        # Convert root to absolute path for relative path calculation
-        abs_root = os.path.abspath(root)
-        
-        # Filter directories first
-        filtered_dirs = []
-        for d in dirs:
-            abs_dir_path = os.path.join(abs_root, d)
-            rel_dir_path = os.path.relpath(abs_dir_path, base_dir)
-            if not any(_is_path_ignored(rel_dir_path, ignore_path) for ignore_path in ignore_paths):
-                filtered_dirs.append(d)
-        dirs[:] = filtered_dirs
+    # Change to target directory for consistent path resolution
+    original_cwd = os.getcwd()
+    os.chdir(base_dir)
+    
+    try:
+        for root, dirs, files in os.walk('.'):
+            # Filter directories first
+            filtered_dirs = []
+            for d in dirs:
+                dir_path = os.path.join(root, d)
+                # Use path relative to base_dir for ignore checks
+                rel_dir_path = os.path.relpath(dir_path, '.')
+                if not any(_is_path_ignored(rel_dir_path, ignore_path) for ignore_path in ignore_paths):
+                    filtered_dirs.append(d)
+            dirs[:] = filtered_dirs
 
-        for filename in files:
-            abs_filepath = os.path.join(abs_root, filename)
-            rel_filepath = os.path.relpath(abs_filepath, base_dir)
-            
-            if (
-                os.path.isfile(abs_filepath)
-                and not any(_is_path_ignored(rel_filepath, ignore_path) for ignore_path in ignore_paths)
-                and is_text_file(abs_filepath)
-            ):
-                text_files.append(abs_filepath)
+            for filename in files:
+                filepath = os.path.join(root, filename)
+                # Use path relative to base_dir for ignore checks
+                rel_filepath = os.path.relpath(filepath, '.')
+                abs_filepath = os.path.join(base_dir, rel_filepath)
+                
+                if (
+                    os.path.isfile(abs_filepath)
+                    and not any(_is_path_ignored(rel_filepath, ignore_path) for ignore_path in ignore_paths)
+                    and is_text_file(abs_filepath)
+                ):
+                    text_files.append(abs_filepath)
+    finally:
+        # Restore original working directory
+        os.chdir(original_cwd)
+    
     return text_files
 
 

@@ -56,10 +56,19 @@ class TestIgnoreLogic(unittest.TestCase):
             ("tests/.pytest_cache/CACHEDIR.TAG", "**/.pytest_cache/**", True),
             (".venv/lib/python3.8/site-packages/pkg.py", "**/.venv/**", True),
             
-            # Java
+            # Java/Maven
             ("build/classes/main/App.class", "**/build/**/*.class", True),
             ("target/myapp-1.0.jar", "**/target/**/*.jar", True),
             (".gradle/7.0/checksums", "**/.gradle/**", True),
+            ("modules/shared/target/maven-status/maven-compiler-plugin/compile/default-compile/createdFiles.lst", "**/target/**", True),
+            ("project/module/target/classes/com/example/Test.class", "**/target/**", True),
+            ("target/maven-status/maven-compiler-plugin/testCompile/default-testCompile/inputFiles.lst", "**/target/**", True),
+            ("target/maven-archiver/pom.properties", "**/target/**", True),
+            ("target/surefire-reports/TEST-com.example.TestClass.xml", "**/target/**", True),
+            ("target/site/jacoco/index.html", "**/target/**", True),
+            ("target/generated-sources/annotations/", "**/target/**", True),
+            ("some-module/target/dependency-reduced-pom.xml", "**/target/**", True),
+            ("deep/path/to/module/target/maven-status/maven-compiler-plugin/compile/default-compile/createdFiles.lst", "**/target/**", True),
         ]
         for path, pattern, expected in test_cases:
             with self.subTest(path=path, pattern=pattern):
@@ -179,6 +188,75 @@ class TestIgnoreLogic(unittest.TestCase):
             ("my_projects/tst/src/resources/swagger/swagger-ui-core.js.map", "resources/swagger/", True),
             ("my_projects/tst/src/main/resources/some-other-folder/file.txt", "resources/swagger/", False),
             (r"C:\workspace\projects\pool\src\main\resources\swagger\swagger-ui-es-bundle-core.js.map", "resources/swagger/", True),
+        ]
+        for path, pattern, expected in test_cases:
+            with self.subTest(path=path, pattern=pattern):
+                self.assertEqual(_is_path_ignored(path, pattern), expected)
+
+    def test_relative_path_scenarios(self):
+        """Test ignore patterns with relative paths and different working directories"""
+        test_cases = [
+            # When working dir is /workspace/projects/empty and target dir is ../pool
+            ("modules/shared/target/classes/com/example/Test.class", "**/target/**", True),
+            ("modules/shared/src/main/java/com/example/Test.java", "**/target/**", False),
+            
+            # Deeply nested target directories
+            ("some/very/deep/path/target/classes/file.class", "**/target/**", True),
+            ("another/deep/path/not-target/classes/file.class", "**/target/**", False),
+            
+            # Complex relative paths
+            ("../pool/modules/shared/target/maven-status/maven-compiler-plugin/compile/default-compile/createdFiles.lst", "**/target/**", True),
+            ("../pool/modules/core/src/main/resources/config.xml", "**/target/**", False),
+            
+            # Parent directory references
+            ("../../other-project/target/classes/file.class", "**/target/**", True),
+            ("../sibling-project/build/libs/file.jar", "**/target/**", False),
+            
+            # Mixed path separators
+            (r"..\pool\modules\shared\target\classes\Test.class", "**/target/**", True),
+            (r"..\pool\modules\shared\src\main\java\Test.java", "**/target/**", False),
+            
+            # Absolute paths when working from relative directory
+            ("/workspace/projects/pool/modules/shared/target/classes/Test.class", "**/target/**", True),
+            ("/workspace/projects/pool/modules/shared/src/main/java/Test.java", "**/target/**", False),
+            
+            # Current directory references
+            ("./target/classes/Test.class", "**/target/**", True),
+            ("./src/main/java/Test.java", "**/target/**", False),
+        ]
+        for path, pattern, expected in test_cases:
+            with self.subTest(path=path, pattern=pattern):
+                self.assertEqual(_is_path_ignored(path, pattern), expected)
+
+    def test_working_directory_edge_cases(self):
+        """Test ignore patterns with tricky working directory scenarios"""
+        test_cases = [
+            # Empty relative paths
+            ("", "**/target/**", False),
+            (".", "**/target/**", False),
+            ("..", "**/target/**", False),
+            
+            # Just the pattern directory
+            ("target", "**/target/**", True),
+            ("./target", "**/target/**", True),
+            ("../target", "**/target/**", True),
+            
+            # Relative paths with multiple parent references
+            ("../../target/classes/Test.class", "**/target/**", True),
+            ("../../../very/deep/target/classes/Test.class", "**/target/**", True),
+            
+            # Mixed absolute and relative paths
+            ("/absolute/path/to/target/classes/Test.class", "**/target/**", True),
+            ("../relative/path/to/target/classes/Test.class", "**/target/**", True),
+            ("./current/path/to/target/classes/Test.class", "**/target/**", True),
+            
+            # Path traversal attempts
+            ("../../../etc/passwd", "**/target/**", False),
+            ("target/../../../etc/passwd", "**/target/**", False),
+            
+            # Windows-style paths with drive letters
+            (r"C:\workspace\projects\pool\target\classes\Test.class", "**/target/**", True),
+            (r"D:\another\path\target\classes\Test.class", "**/target/**", True),
         ]
         for path, pattern, expected in test_cases:
             with self.subTest(path=path, pattern=pattern):
