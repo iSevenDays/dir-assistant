@@ -76,10 +76,17 @@ class IgnoreHandler:
                                 if line and not line.startswith('#'):
                                     # Make pattern relative to base_dir
                                     if rel_path != '.':
-                                        pattern = os.path.join(rel_path, line)
+                                        # Handle both directory-specific and global patterns
+                                        if line.startswith('/'):
+                                            # Absolute pattern relative to this .gitignore
+                                            pattern = os.path.join(rel_path, line[1:])
+                                        else:
+                                            # Relative pattern applies to this dir and subdirs
+                                            pattern = os.path.join(rel_path, line)
                                         pattern = pattern.replace('\\', '/')
                                         self.patterns.append(pattern)
                                     else:
+                                        # Root .gitignore patterns
                                         self.patterns.append(line)
                     except IOError as e:
                         logger.error(f"Failed to read {gitignore_path}: {e}")
