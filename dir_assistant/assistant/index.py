@@ -65,13 +65,13 @@ def _is_path_ignored(filepath, ignore_pattern):
     if any contiguous subsequence of the filepath components matches the
     ignore pattern.
     """
-    # Normalize paths for case-insensitive matching and consistent separators
-    norm_filepath = os.path.normpath(filepath).lower().replace('\\', '/')
-    norm_ignore = os.path.normpath(ignore_pattern.rstrip('/')).lower().replace('\\', '/')
+    # Normalize paths and handle backslashes
+    norm_filepath = os.path.normpath(filepath).replace('\\', '/')
+    norm_ignore = os.path.normpath(ignore_pattern.rstrip('/')).replace('\\', '/')
 
-    # Split paths into components
-    fp_parts = norm_filepath.split('/')
-    pat_parts = norm_ignore.split('/')
+    # Split paths into components and convert to lowercase for case-insensitive matching
+    fp_parts = [p.lower() for p in norm_filepath.split('/')]
+    pat_parts = [p.lower() for p in norm_ignore.split('/')]
 
     # Recursive helper function for matching
     def _match_recursive(fp, pat):
@@ -86,7 +86,8 @@ def _is_path_ignored(filepath, ignore_pattern):
             # Option 2: consume one directory and try again
             return _match_recursive(fp[1:], pat)
         else:
-            if fnmatch.fnmatch(fp[0], pat[0]):
+            # Use fnmatchcase with already lowercased strings
+            if fnmatch.fnmatchcase(fp[0], pat[0]):
                 return _match_recursive(fp[1:], pat[1:])
             else:
                 return False
