@@ -37,6 +37,8 @@ class TestIgnoreLogic(unittest.TestCase):
         frontend_gitignore = os.path.join(frontend_dir, ".gitignore")
         backend_dir = os.path.join(self.test_dir, "backend")
         backend_gitignore = os.path.join(backend_dir, ".gitignore")
+        nested_dir = os.path.join(frontend_dir, "src", "components")
+        nested_gitignore = os.path.join(nested_dir, ".gitignore")
         
         os.makedirs(frontend_dir)
         os.makedirs(backend_dir)
@@ -220,10 +222,14 @@ class TestIgnoreLogic(unittest.TestCase):
             # Mixed case in pattern
             ("src/node_modules/file.js", "**/NODE_MODULES/**", True),
             ("src/dist/file.js", "**/DiSt/**", True),
+            
+            # Explicit case sensitive patterns
+            ("src/Node_Modules/file.js", "**/node_modules/**", True),
+            ("src/node_modules/file.js", "**/Node_Modules/**", True),
         ]
         for path, pattern, expected in test_cases:
             with self.subTest(path=path, pattern=pattern):
-                handler = IgnoreHandler([pattern], base_dir=self.test_dir)
+                handler = IgnoreHandler([pattern], base_dir=self.test_dir, case_sensitive=False)
                 self.assertEqual(handler.is_ignored(path, self.test_dir), expected)
 
     def test_backward_compatibility(self):

@@ -31,7 +31,8 @@ class IgnoreHandler:
     def __init__(self, 
                  ignore_paths: Optional[Union[List[str], str]] = None,
                  use_git_ignore: bool = False,
-                 base_dir: Optional[str] = None):
+                 base_dir: Optional[str] = None,
+                 case_sensitive: bool = False):
         """Initialize the IgnoreHandler.
         
         Args:
@@ -69,8 +70,25 @@ class IgnoreHandler:
             except IOError as e:
                 logger.error(f"Failed to read .gitignore: {e}")
         
-        # Initialize PathSpec with all patterns
-        self._spec = PathSpec.from_lines(GitWildMatchPattern, self.patterns)
+        # Initialize PathSpec with all patterns and case sensitivity
+        self._spec = PathSpec.from_lines(
+            GitWildMatchPattern, 
+            self.patterns,
+            case_sensitive=case_sensitive
+        )
+
+    def _normalize_pattern(self, pattern: str) -> str:
+        """Normalize a pattern for consistent matching."""
+        # Convert to forward slashes
+        pattern = pattern.replace("\\", "/")
+        # Remove leading/trailing whitespace
+        pattern = pattern.strip()
+        # Handle special cases
+        if pattern.startswith("./"):
+            pattern = pattern[2:]
+        if pattern.endswith("/"):
+            pattern = pattern[:-1]
+        return pattern
 
     def _normalize_pattern(self, pattern: str) -> str:
         """Normalize a pattern for consistent matching."""
