@@ -32,6 +32,7 @@ setup(
         "boto3",
         "dynaconf",
         "toml",
+        "pathspec>=0.11.0",  # For path pattern matching
     ],
     entry_points={
         "console_scripts": [
