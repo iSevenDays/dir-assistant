@@ -54,6 +54,11 @@ def main():
         action="store_true",
         help="Disable colored output.",
     )
+    parser.add_argument(
+        "--use-gitignore",
+        action="store_true",
+        help="Respect .gitignore files in the directory tree.",
+    )
 
     mode_subparsers = parser.add_subparsers(
         dest="mode", help="Run dir-assistant in regular mode"
@@ -95,6 +100,11 @@ def main():
         "--no-color",
         action="store_true",
         help="Disable colored output.",
+    )
+    start_parser.add_argument(
+        "--use-gitignore",
+        action="store_true",
+        help="Respect .gitignore files in the directory tree.",
     )
     start_subparsers = start_parser.add_subparsers(
         dest="start_mode", help="Operation mode for the config subcommand."

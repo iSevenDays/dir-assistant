@@ -1,149 +1,114 @@
-"""Module for handling ignore patterns using pathspec.
+"""Module for handling file ignoring based on patterns and .gitignore files."""
 
-This module provides a wrapper around pathspec for handling gitignore-style pattern matching.
-"""
 import os
-import logging
-from pathlib import Path
-from typing import List, Optional, Union
-
+from typing import List, Optional
 from pathspec import PathSpec
-from pathspec.patterns.gitwildmatch import GitWildMatchPattern
-
-logger = logging.getLogger(__name__)
+from pathspec.patterns import GitWildMatchPattern
+from .gitignore_manager import GitIgnoreManager
 
 class IgnoreHandler:
-    """Handles file/directory ignore patterns using gitignore syntax.
-    
-    This class provides a wrapper around pathspec's PathSpec for pattern matching.
-    It supports loading patterns from files or direct pattern lists.
-    
-    Attributes:
-        DEFAULT_IGNORE_FILE: Name of the default ignore file to look for.
-        GITIGNORE_FILE: Name of git's ignore file.
-        base_dir: Base directory for resolving relative paths.
-        patterns: List of ignore patterns.
-    """
+    """Handles file ignoring based on patterns and .gitignore files."""
     
     DEFAULT_IGNORE_FILE = ".dirassistantignore"
-    GITIGNORE_FILE = ".gitignore"
     
-    def __init__(self, 
-                 ignore_paths: Optional[Union[List[str], str]] = None,
-                 use_git_ignore: bool = False,
-                 base_dir: Optional[str] = None,
-                 case_sensitive: bool = False):
+    def __init__(self, patterns=None, base_dir=None, use_git_ignore=False, case_sensitive=False):
         """Initialize the IgnoreHandler.
         
         Args:
-            ignore_paths: List of patterns or path to ignore file
-            use_git_ignore: Whether to respect .gitignore files
-            base_dir: Base directory for resolving relative paths
+            patterns: List of ignore patterns or path to ignore file
+            base_dir: Base directory for relative paths
+            use_git_ignore: Whether to also load and respect .gitignore files
+            case_sensitive: Whether to use case-sensitive pattern matching (False by default, following git behavior)
         """
-        self.base_dir = os.path.abspath(base_dir) if base_dir else os.getcwd()
-        self.patterns: List[str] = []
+        self.base_dir = base_dir or "."
         self.use_git_ignore = use_git_ignore
-        self._spec = None  # Cache for PathSpec object
-        
-        # Load patterns from ignore_paths
-        if ignore_paths:
-            if isinstance(ignore_paths, str) and os.path.isfile(ignore_paths):
-                try:
-                    with open(ignore_paths, 'r') as f:
-                        self.patterns.extend(
-                            self._normalize_pattern(line) for line in f
-                            if line.strip() and not line.startswith('#')
-                        )
-                except IOError as e:
-                    logger.error(f"Failed to read ignore file {ignore_paths}: {e}")
-            else:
-                self.patterns.extend(
-                    self._normalize_pattern(p) for p in ignore_paths if p.strip()
-                )
-                
-        # Load patterns from gitignore if enabled
-        if use_git_ignore:
-            # Walk directory tree and find all .gitignore files
-            for root, dirs, files in os.walk(self.base_dir):
-                if self.GITIGNORE_FILE in files:
-                    gitignore_path = os.path.join(root, self.GITIGNORE_FILE)
-                    try:
-                        with open(gitignore_path, 'r') as f:
-                            # Add patterns with path relative to base_dir
-                            rel_path = os.path.relpath(root, self.base_dir)
-                            for line in f:
-                                line = line.strip()
-                                if line and not line.startswith('#'):
-                                    # Make pattern relative to base_dir
-                                    if rel_path != '.':
-                                        # Handle both directory-specific and global patterns
-                                        if line.startswith('/'):
-                                            # Absolute pattern relative to this .gitignore
-                                            pattern = os.path.join(rel_path, line[1:])
-                                        else:
-                                            # Relative pattern applies to this dir and subdirs
-                                            pattern = os.path.join(rel_path, line)
-                                        pattern = pattern.replace('\\', '/')
-                                        # Ensure patterns ending with * are handled correctly
-                                        if pattern.endswith('*'):
-                                            pattern = pattern[:-1] + '**'
-                                        self.patterns.append(pattern)
-                                    else:
-                                        # Root .gitignore patterns
-                                        self.patterns.append(line)
-                    except IOError as e:
-                        logger.error(f"Failed to read {gitignore_path}: {e}")
-        
-        # Initialize PathSpec with all patterns
-        self._spec = PathSpec.from_lines(GitWildMatchPattern, self.patterns)
         self.case_sensitive = case_sensitive
-
-    def _normalize_pattern(self, pattern: str) -> str:
-        """Normalize a pattern for consistent matching."""
-        # Convert to forward slashes
-        pattern = pattern.replace("\\", "/")
-        # Remove leading/trailing whitespace
-        pattern = pattern.strip()
-        # Handle special cases
-        if pattern.startswith("./"):
-            pattern = pattern[2:]
-        if pattern.endswith("/"):
-            pattern = pattern[:-1]
-        return pattern
-
-    def is_ignored(self, path: str, base_dir: Optional[str] = None) -> bool:
-        """Check if a path should be ignored.
+        self._specs = {}
         
-        Args:
-            path: Path to check
-            base_dir: Optional base directory for resolving relative paths
-            
-        Returns:
-            True if path matches any ignore pattern, False otherwise
-        """
-        check_dir = os.path.abspath(base_dir) if base_dir else self.base_dir
+        if patterns:
+            if not case_sensitive:
+                patterns = [p.lower() if isinstance(p, str) else p for p in patterns]
+            self._specs[self.base_dir] = PathSpec.from_lines(GitWildMatchPattern, patterns)
         
-        # Get relative path from base directory
-        if not os.path.isabs(path):
-            path = os.path.join(check_dir, path)
-            
-        try:
-            rel_path = os.path.relpath(path, check_dir)
-        except ValueError:
+        # Initialize components
+        self._cache = {}  # Changed from IgnoreCache() to a simple dict
+        self._gitignore_manager = GitIgnoreManager(self.base_dir, self.case_sensitive) if self.use_git_ignore else None
+        
+        # Load gitignore patterns if enabled
+        if self._gitignore_manager:
+            self._gitignore_manager.load_patterns()
+                
+    def is_ignored(self, path):
+        """Check if a path should be ignored based on the patterns."""
+        if not self._specs and not self._gitignore_manager:
             return False
-            
-        # Normalize path for matching
-        rel_path = rel_path.replace("\\", "/").strip("/")
-        if not rel_path:
-            return False
-            
-        # Handle case sensitivity
+
+        # Normalize path for consistent matching
+        path = os.path.normpath(path).replace("\\", "/")
         if not self.case_sensitive:
-            rel_path = rel_path.lower()
-            # Create case-insensitive patterns if needed
-            patterns = [p.lower() for p in self.patterns]
-            spec = PathSpec.from_lines(GitWildMatchPattern, patterns)
-            return spec.match_file(rel_path)
+            path = path.lower()
+        
+        # Check if gitignore files have been modified
+        if self._gitignore_manager and self._gitignore_manager.check_updates():
+            self._cache.clear()  # Clear cache if gitignore files changed
+        
+        # Check cache first
+        cache_key = f"{path}:{self.case_sensitive}"
+        if cache_key in self._cache:
+            return self._cache[cache_key]
+
+        # Check gitignore patterns first - these take precedence over explicit patterns
+        if self._gitignore_manager:
+            is_ignored, is_definitive = self._gitignore_manager.is_ignored(path)
+            if is_definitive:
+                self._cache[cache_key] = is_ignored
+                return is_ignored
+
+        # Match against explicit patterns
+        is_ignored = False
+        # Sort specs by directory depth (root first)
+        sorted_specs = sorted(self._specs.items(), key=lambda x: len(x[0].split('/')))
+        for dir_path, spec in sorted_specs:
+            # Check if any pattern matches
+            for pattern in spec.patterns:
+                if pattern.regex.search(path):
+                    is_ignored = pattern.include
+                    # If this is a negation pattern, it's definitive
+                    if not pattern.include:
+                        self._cache[cache_key] = is_ignored
+                        return is_ignored
+
+        self._cache[cache_key] = is_ignored
+        return is_ignored
+
+    def add_patterns(self, patterns, dir_path=None):
+        """Add new ignore patterns for a specific directory."""
+        if not patterns:
+            return
+
+        dir_path = dir_path or self.base_dir
+        if not self.case_sensitive:
+            patterns = [p.lower() if isinstance(p, str) else p for p in patterns]
+        self._specs[dir_path] = PathSpec.from_lines(GitWildMatchPattern, patterns)
+        self._cache.clear()  # Clear cache when patterns change
+
+    @property
+    def patterns(self) -> List[str]:
+        """Get all active ignore patterns.
+        
+        Returns:
+            List of ignore patterns from both explicit patterns and .gitignore files
+        """
+        patterns = []
+        
+        # Add explicit patterns
+        if self._specs:
+            for spec in self._specs.values():
+                patterns.extend(str(pattern) for pattern in spec.patterns)
             
-        # Use original PathSpec for case-sensitive matching
-        return self._spec.match_file(rel_path)
+        # Add gitignore patterns
+        if self._gitignore_manager:
+            for spec in self._gitignore_manager._specs.values():
+                patterns.extend(str(pattern) for pattern in spec.patterns)
+                
+        return patterns

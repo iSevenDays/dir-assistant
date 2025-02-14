@@ -6,9 +6,9 @@ from colorama import Fore, Style
 from faiss import IndexFlatL2
 from sqlitedict import SqliteDict
 from concurrent.futures import ThreadPoolExecutor
-import fnmatch
 
 from dir_assistant.cli.config import HISTORY_FILENAME, STORAGE_PATH, CACHE_PATH, get_file_path
+from dir_assistant.assistant.ignore_handler import IgnoreHandler
 
 INDEX_CACHE_FILENAME = "index_cache.sqlite"
 
@@ -24,93 +24,69 @@ def is_text_file(filepath):
         return False
 
 
-def get_text_files(directory=".", ignore_paths=[]):
+def get_text_files(directory=".", ignore_paths=None, use_git_ignore=False):
+    """Get all text files in a directory, respecting ignore patterns.
+    
+    Args:
+        directory: Base directory to search in.
+        ignore_paths: List of gitignore-style patterns or path to ignore file.
+            If None, will look for .dirassistantignore in the base directory.
+        use_git_ignore: Whether to also load and respect .gitignore files in the directory tree.
+            
+    Returns:
+        List of relative paths to text files.
+    """
     text_files = []
     # Convert target directory to absolute path
     base_dir = os.path.abspath(directory)
-    # Change to target directory for consistent path resolution
-    original_cwd = os.getcwd()
-    os.chdir(base_dir)
     
-    try:
-        for root, dirs, files in os.walk('.'):
-            # Filter directories first
-            filtered_dirs = []
-            for d in dirs:
-                dir_path = os.path.join(root, d)
-                # Use path relative to base_dir for ignore checks
-                rel_dir_path = os.path.relpath(dir_path, '.')
-                if not any(_is_path_ignored(rel_dir_path, ignore_path) for ignore_path in ignore_paths):
-                    filtered_dirs.append(d)
-            dirs[:] = filtered_dirs
-
-            for filename in files:
-                filepath = os.path.join(root, filename)
-                # Use path relative to base_dir for ignore checks
-                rel_filepath = os.path.relpath(filepath, '.')
-                abs_filepath = os.path.join(base_dir, rel_filepath)
+    # Check for default ignore file if no patterns provided
+    if ignore_paths is None:
+        default_ignore = os.path.join(base_dir, IgnoreHandler.DEFAULT_IGNORE_FILE)
+        if os.path.isfile(default_ignore):
+            ignore_paths = default_ignore
+    
+    # Initialize ignore handler
+    ignore_handler = IgnoreHandler(
+        patterns=ignore_paths,
+        use_git_ignore=use_git_ignore,
+        base_dir=base_dir
+    )
+    
+    # Walk the directory tree
+    for root, dirs, files in os.walk(base_dir, followlinks=True):
+        # Get relative paths for checking ignore patterns
+        rel_root = os.path.relpath(root, base_dir)
+        
+        # Filter directories first to optimize traversal
+        filtered_dirs = []
+        for d in dirs:
+            rel_path = os.path.join(rel_root, d) if rel_root != '.' else d
+            if not ignore_handler.is_ignored(rel_path):
+                filtered_dirs.append(d)
+        dirs[:] = filtered_dirs
+        
+        # Filter files using the same ignore handler
+        for filename in files:
+            # Skip .gitignore files themselves
+            if filename == '.gitignore':
+                continue
                 
-                if (
-                    os.path.isfile(abs_filepath)
-                    and not any(_is_path_ignored(rel_filepath, ignore_path) for ignore_path in ignore_paths)
-                    and is_text_file(abs_filepath)
-                ):
-                    text_files.append(abs_filepath)
-    finally:
-        # Restore original working directory
-        os.chdir(original_cwd)
+            # Use relative path for ignore check
+            rel_path = os.path.join(rel_root, filename) if rel_root != '.' else filename
+            abs_path = os.path.join(root, filename)
+            
+            if (os.path.isfile(abs_path) and
+                not ignore_handler.is_ignored(rel_path) and
+                is_text_file(abs_path)):
+                # Return the relative path
+                text_files.append(rel_path)
     
-    return text_files
+    return sorted(text_files)  # Sort for consistent ordering
 
 
-def _is_path_ignored(filepath, ignore_pattern):
-    """
-    Check if a filepath matches an ignore pattern.
-    Supports glob patterns:
-    - ** matches zero or more directories
-    - * matches zero or more characters within a path component
-    - ? matches exactly one character within a path component
-
-    The matching is done in a case-insensitive manner and will return True
-    if any contiguous subsequence of the filepath components matches the
-    ignore pattern.
-    """
-    # Normalize paths and handle backslashes
-    norm_filepath = os.path.normpath(filepath).replace('\\', '/')
-    norm_ignore = os.path.normpath(ignore_pattern.rstrip('/')).replace('\\', '/')
-
-    # Split paths into components and convert to lowercase for case-insensitive matching
-    fp_parts = [p.lower() for p in norm_filepath.split('/')]
-    pat_parts = [p.lower() for p in norm_ignore.split('/')]
-
-    # Recursive helper function for matching
-    def _match_recursive(fp, pat):
-        if not pat:
-            return True
-        if not fp:
-            return all(part == '**' for part in pat)
-        if pat[0] == '**':
-            # Option 1: skip '**'
-            if _match_recursive(fp, pat[1:]):
-                return True
-            # Option 2: consume one directory and try again
-            return _match_recursive(fp[1:], pat)
-        else:
-            # Use fnmatchcase with already lowercased strings
-            if fnmatch.fnmatchcase(fp[0], pat[0]):
-                return _match_recursive(fp[1:], pat[1:])
-            else:
-                return False
-
-    # Try matching at any position in the filepath
-    for i in range(len(fp_parts)):
-        if _match_recursive(fp_parts[i:], pat_parts):
-            return True
-    return False
-
-
-def get_files_with_contents(directory, ignore_paths, cache_db):
-    text_files = get_text_files(directory, ignore_paths)
+def get_files_with_contents(directory, ignore_paths, cache_db, use_git_ignore=False):
+    text_files = get_text_files(directory, ignore_paths, use_git_ignore)
     files_with_contents = []
     with SqliteDict(cache_db, autocommit=True) as cache:
         for filepath in text_files:
@@ -137,18 +113,18 @@ def get_files_with_contents(directory, ignore_paths, cache_db):
 
 
 def create_file_index(
-    embed, ignore_paths, embed_chunk_size, extra_dirs=[], verbose=False
+    embed, ignore_paths, embed_chunk_size, extra_dirs=[], verbose=False, use_git_ignore=False
 ):
     cache_db = get_file_path(CACHE_PATH, INDEX_CACHE_FILENAME)
     if verbose:
         print(f"cache_db path: {cache_db}")
     # Start with current directory
-    files_with_contents = get_files_with_contents(".", ignore_paths, cache_db)
+    files_with_contents = get_files_with_contents(".", ignore_paths, cache_db, use_git_ignore)
 
     # Add files from additional folders
     for folder in extra_dirs:
         if os.path.exists(folder):
-            folder_files = get_files_with_contents(folder, ignore_paths, cache_db)
+            folder_files = get_files_with_contents(folder, ignore_paths, cache_db, use_git_ignore)
             files_with_contents.extend(folder_files)
         else:
             if verbose:
@@ -166,7 +142,7 @@ def create_file_index(
                 "Dir-assistant requires a file to be initialized, so this one was created because "
                 "the directory was empty."
             )
-        files_with_contents = get_files_with_contents(".", ignore_paths, cache_db)
+        files_with_contents = get_files_with_contents(".", ignore_paths, cache_db, use_git_ignore)
 
     chunks = []
     embeddings_list = []

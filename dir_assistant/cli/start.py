@@ -151,7 +151,12 @@ see readme for more information. Exiting..."""
             f"{Fore.LIGHTBLACK_EX}Creating file embeddings and index...{Style.RESET_ALL}"
         )
     index, chunks = create_file_index(
-        embed, ignore_paths, embed_chunk_size, extra_dirs, verbose
+        embed, 
+        ignore_paths, 
+        embed_chunk_size, 
+        extra_dirs, 
+        verbose,
+        use_git_ignore=args.use_gitignore
     )
 
     # Set up the system instructions
@@ -241,7 +246,12 @@ def start(args, config_dict):
 
     # Start file watcher. It is running in another thread after this.
     watcher = start_file_watcher(
-        ".", embed, ignore_paths, embed_chunk_size, llm.update_index_and_chunks
+        ".", 
+        embed, 
+        ignore_paths, 
+        embed_chunk_size, 
+        llm.update_index_and_chunks,
+        use_git_ignore=args.use_gitignore
     )
 
     # Display the startup art
