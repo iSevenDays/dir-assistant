@@ -122,9 +122,11 @@ class GitIgnoreManager:
                 # Check each pattern in this .gitignore
                 for pattern in self._specs[dir_path].patterns:
                     test_string = rel_path if "/" in pattern.pattern else os.path.basename(rel_path)
-                    if pattern.regex.search(test_string):
+                    if pattern.pattern.endswith('/') and not test_string.endswith('/'):
+                        test_string += '/'
+                    if pattern.regex and pattern.regex.search(test_string):
                         result = pattern.include
-
+        
         if result is None:
             return (False, False)
         return (result, True) 

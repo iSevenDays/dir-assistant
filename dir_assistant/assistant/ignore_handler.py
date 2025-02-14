@@ -24,12 +24,19 @@ class IgnoreHandler:
         self.use_git_ignore = use_git_ignore
         self.case_sensitive = case_sensitive
         self._specs = {}
-        
+
+        # If patterns is a string pointing to a file, load its contents
+        if patterns and isinstance(patterns, str) and os.path.isfile(patterns):
+            with open(patterns, 'r') as f:
+                lines = f.readlines()
+            # Filter out empty lines and comments
+            patterns = [line.strip() for line in lines if line.strip() and not line.strip().startswith('#')]
+
         if patterns:
             if not case_sensitive:
                 patterns = [p.lower() if isinstance(p, str) else p for p in patterns]
             self._specs[self.base_dir] = PathSpec.from_lines(GitWildMatchPattern, patterns)
-        
+
         # Initialize components
         self._cache = {}  # Changed from IgnoreCache() to a simple dict
         self._gitignore_manager = GitIgnoreManager(self.base_dir, self.case_sensitive) if self.use_git_ignore else None
@@ -59,25 +66,25 @@ class IgnoreHandler:
 
         # Check gitignore patterns first - these take precedence over explicit patterns
         if self._gitignore_manager:
-            is_ignored, is_definitive = self._gitignore_manager.is_ignored(path)
+            is_ignored_git, is_definitive = self._gitignore_manager.is_ignored(path)
             if is_definitive:
-                self._cache[cache_key] = is_ignored
-                return is_ignored
+                self._cache[cache_key] = is_ignored_git
+                return is_ignored_git
 
         # Match against explicit patterns
         is_ignored = False
         # Sort specs by directory depth (root first)
         sorted_specs = sorted(self._specs.items(), key=lambda x: len(x[0].split('/')))
         for dir_path, spec in sorted_specs:
-            # Check if any pattern matches
             for pattern in spec.patterns:
-                if pattern.regex.search(path):
+                # Determine test string: use full path if pattern contains '/', else basename
+                test_string = path if '/' in pattern.pattern else os.path.basename(path)
+                # If pattern ends with '/' but test_string does not, append '/'
+                if pattern.pattern.endswith('/') and not test_string.endswith('/'):
+                    test_string = test_string + '/'
+                if pattern.regex and pattern.regex.search(test_string):
                     is_ignored = pattern.include
-                    # If this is a negation pattern, it's definitive
-                    if not pattern.include:
-                        self._cache[cache_key] = is_ignored
-                        return is_ignored
-
+        
         self._cache[cache_key] = is_ignored
         return is_ignored
 
