@@ -62,6 +62,16 @@ class GitIgnoreManager:
             True if any files were modified and reloaded
         """
         updated = False
+        # Remove deleted .gitignore files (and clear their entries)
+        for gitignore_path in list(self._mtimes.keys()):
+            if not os.path.exists(gitignore_path):
+                rel_dir = os.path.dirname(os.path.relpath(gitignore_path, self.base_dir))
+                if rel_dir == '.':
+                    rel_dir = ''
+                self._mtimes.pop(gitignore_path)
+                if rel_dir in self._specs:
+                    del self._specs[rel_dir]
+                updated = True
         for root, _, files in os.walk(self.base_dir):
             if ".gitignore" in files:
                 gitignore_path = os.path.join(root, ".gitignore")
@@ -85,13 +95,9 @@ class GitIgnoreManager:
             - is_ignored: True if path should be ignored
             - is_definitive: True if this is a definitive answer
         """
-        # Normalize path for consistent matching
         norm_path = os.path.normpath(path).replace("\\", "/")
         if not self.case_sensitive:
             norm_path = norm_path.lower()
-
-        result = None
-        definitive = False
 
         # Build list of directories from root to file's parent
         path_parts = norm_path.split("/")
@@ -102,18 +108,23 @@ class GitIgnoreManager:
                 current = os.path.join(current, part) if current else part
                 check_dirs.append(current)
 
-        # Evaluate patterns in each relevant .gitignore, applying patterns relative to their directory
+        result = None
+        # Check each directory's patterns in order, from root to most specific
         for dir_path in check_dirs:
             if dir_path in self._specs:
-                spec = self._specs[dir_path]
-                # Determine the relative path for patterns in this directory
-                rel_path = norm_path if dir_path == "" else (norm_path[len(dir_path)+1:] if norm_path.startswith(dir_path + "/") else None)
-                if rel_path is None:
-                    continue
-                for pattern in spec.patterns:
-                    if pattern.regex.search(rel_path):
+                # Get the path relative to this gitignore's directory
+                rel_path = norm_path
+                if dir_path:
+                    if not norm_path.startswith(dir_path + "/"):
+                        continue
+                    rel_path = norm_path[len(dir_path)+1:]
+                
+                # Check each pattern in this .gitignore
+                for pattern in self._specs[dir_path].patterns:
+                    test_string = rel_path if "/" in pattern.pattern else os.path.basename(rel_path)
+                    if pattern.regex.search(test_string):
                         result = pattern.include
-                        definitive = True
+
         if result is None:
             return (False, False)
-        return (result, definitive) 
+        return (result, True) 

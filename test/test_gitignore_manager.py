@@ -48,8 +48,8 @@ class TestGitIgnoreManager(unittest.TestCase):
         manager.load_patterns()
         
         # Verify patterns were loaded
-        self.assertIn(self.test_dir, manager._specs)
-        spec = manager._specs[self.test_dir]
+        self.assertIn("", manager._specs)
+        spec = manager._specs[""]
         
         # Test pattern matching
         self.assertTrue(spec.match_file("file.pyc"))
