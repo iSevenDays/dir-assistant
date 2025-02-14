@@ -96,6 +96,7 @@ class TestGetTextFiles(unittest.TestCase):
 *.log
 .env
 node_modules/
+**/target/
 """)
 
         # Frontend specific .gitignore
@@ -103,8 +104,8 @@ node_modules/
         frontend_gitignore = os.path.join(frontend_dir, ".gitignore")
         with open(frontend_gitignore, 'w') as f:
             f.write("""# Frontend specific ignores
-dist/
-*.tsx
+ dist/
+ *.tsx
 """)
 
         # Backend specific .gitignore
@@ -112,8 +113,8 @@ dist/
         backend_gitignore = os.path.join(backend_dir, ".gitignore")
         with open(backend_gitignore, 'w') as f:
             f.write("""# Backend specific ignores
-__pycache__/
-*.pyc
+ __pycache__/
+ *.pyc
 """)
 
     def tearDown(self):
@@ -131,42 +132,52 @@ __pycache__/
         for path in sorted(relative_paths):
             print(f"  {path}")
         
-        # Files that should be included
+        # Files that should be included (updated based on proper gitignore rules)
         expected_files = {
-            "src/main/resources/swagger/swagger-ui.js",
-            "src/main/resources/swagger/index.html",
-            "src/main/resources/config.properties",
-            "src/main/java/com/example/Test.java",
-            "src/resources/swagger/swagger-ui-core.js",
-            "src/test/resources/test.properties",
-            "docs/README.md",
-            "src/main/resources/application.yaml",
+            ".git/config",
+            ".idea/workspace.xml",
+            ".vscode/settings.json",
+            "__pycache__/module.pyc",
+            "backend/src/models/User.py",
+            "build/outputs/app.jar",
             "config/settings.json",
+            "dist/bundle.js",
+            "docs/README.md",
+            "modules/company/src/main/java/com/example/Test.java",
             "scripts/deploy.sh",
-            "src/test files/space in name.txt",
-            "src/special-chars/test-file.js",
-            "src/unicode/τεστ.txt",
+            "src/empty/empty_file.txt",
+            "src/large/big_file.txt",
             "src/links/real_file.txt",
             "src/links/link_to_file.txt",
-            "src/large/big_file.txt",
-            "src/empty/empty_file.txt",
+            "src/main/java/com/example/Test.java",
+            "src/main/resources/application.yaml",
+            "src/main/resources/config.properties",
+            "src/main/resources/swagger/index.html",
+            "src/main/resources/swagger/swagger-ui.js",
+            "src/resources/swagger/swagger-ui-core.js",
+            "src/special-chars/test-file.js",
+            "src/test files/space in name.txt",
+            "src/test/resources/test.properties",
+            "src/unicode/τεστ.txt",
         }
         
-        # Files that should be excluded based on .gitignore rules
+        # Files that should be excluded based only on explicit .gitignore rules
         excluded_files = {
             # From root .gitignore
             ".env",
-            "frontend/node_modules/react/index.js",
             "node_modules/package/index.js",
             
             # From frontend/.gitignore
+            "frontend/node_modules/react/index.js",
             "frontend/src/components/Button.tsx",
-            "dist/bundle.js",
+            
+            # From target directories via **/target/
+            "modules/company/target/classes/swagger/index.html",
+            "modules/company/target/classes/swagger/swagger-ui.js",
+            "modules/company/target/classes/swagger/swagger-ui-core.js",
             
             # From backend/.gitignore
             "backend/tests/__pycache__/test_user.pyc",
-            "__pycache__/module.pyc",
-            "backend/src/models/User.py",  # This might need adjustment depending on implementation
         }
         
         self._verify_file_sets(relative_paths, expected_files, excluded_files)

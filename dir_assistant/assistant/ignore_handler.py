@@ -4,6 +4,7 @@ import os
 from typing import List, Optional
 from pathspec import PathSpec
 from pathspec.patterns import GitWildMatchPattern
+from pathspec.gitignore import GitIgnoreSpec
 from .gitignore_manager import GitIgnoreManager
 
 class IgnoreHandler:
@@ -33,9 +34,7 @@ class IgnoreHandler:
             patterns = [line.strip() for line in lines if line.strip() and not line.strip().startswith('#')]
 
         if patterns:
-            if not case_sensitive:
-                patterns = [p.lower() if isinstance(p, str) else p for p in patterns]
-            self._specs[self.base_dir] = PathSpec.from_lines(GitWildMatchPattern, patterns)
+            self._specs[self.base_dir] = GitIgnoreSpec.from_lines(patterns)
 
         # Initialize components
         self._cache = {}  # Changed from IgnoreCache() to a simple dict
@@ -52,8 +51,6 @@ class IgnoreHandler:
 
         # Normalize path for consistent matching
         path = os.path.normpath(path).replace("\\", "/")
-        if not self.case_sensitive:
-            path = path.lower()
         
         # Check if gitignore files have been modified
         if self._gitignore_manager and self._gitignore_manager.check_updates():
@@ -94,9 +91,7 @@ class IgnoreHandler:
             return
 
         dir_path = dir_path or self.base_dir
-        if not self.case_sensitive:
-            patterns = [p.lower() if isinstance(p, str) else p for p in patterns]
-        self._specs[dir_path] = PathSpec.from_lines(GitWildMatchPattern, patterns)
+        self._specs[dir_path] = GitIgnoreSpec.from_lines(patterns)
         self._cache.clear()  # Clear cache when patterns change
 
     @property

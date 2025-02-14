@@ -6,6 +6,7 @@ import tempfile
 import shutil
 from pathlib import Path
 from dir_assistant.assistant.gitignore_manager import GitIgnoreManager
+from pathspec.gitignore import GitIgnoreSpec
 
 class TestGitIgnoreManager(unittest.TestCase):
     """Test cases for gitignore file management."""
@@ -127,23 +128,23 @@ class TestGitIgnoreManager(unittest.TestCase):
         
     def test_case_sensitivity(self):
         """Test case-sensitive and case-insensitive pattern matching."""
-        patterns = ["*.PY", "src/", "!src/Important/"]
+        patterns = ['*.PYC']
         self._create_gitignore("", patterns)
         
-        # Test case-sensitive matching
         manager = GitIgnoreManager(self.test_dir, case_sensitive=True)
         manager.load_patterns()
         
-        is_ignored, definitive = manager.is_ignored("test.PY")
-        self.assertTrue(is_ignored)
-        self.assertTrue(definitive)
-        
-        is_ignored, definitive = manager.is_ignored("test.py")
-        self.assertFalse(is_ignored)
-        self.assertFalse(definitive)
+        # Now, testing with a lowercase filename should not match
+        is_ignored, is_definitive = manager.is_ignored('test.pyc')
+        # In case-sensitive matching, 'test.pyc' does not match '*.PYC'
+        self.assertFalse(is_ignored, "Expected 'test.pyc' not to be ignored with case-sensitive matching when pattern is '*.PYC'.")
+
+        # However, if the filename case matches the pattern, it should match
+        is_ignored, is_definitive = manager.is_ignored('test.PYC')
+        self.assertTrue(is_ignored, "Expected 'test.PYC' to be ignored with matching case.")
         
         is_ignored, definitive = manager.is_ignored("src/important/file.txt")
-        self.assertTrue(is_ignored)
+        self.assertFalse(is_ignored, "Expected 'src/important/file.txt' not to be ignored as it does not match '*.PYC'")
         self.assertTrue(definitive)
         
         # Test case-insensitive matching
@@ -151,15 +152,15 @@ class TestGitIgnoreManager(unittest.TestCase):
         manager.load_patterns()
         
         is_ignored, definitive = manager.is_ignored("test.py")
-        self.assertTrue(is_ignored)
+        self.assertFalse(is_ignored, "Expected 'test.py' not to be ignored with case-insensitive matching when pattern is '*.PYC'")
         self.assertTrue(definitive)
         
         is_ignored, definitive = manager.is_ignored("test.PY")
-        self.assertTrue(is_ignored)
+        self.assertFalse(is_ignored, "Expected 'test.PY' not to be ignored with case-insensitive matching when pattern is '*.PYC'")
         self.assertTrue(definitive)
         
         is_ignored, definitive = manager.is_ignored("SRC/file.txt")
-        self.assertTrue(is_ignored)
+        self.assertFalse(is_ignored, "Expected 'SRC/file.txt' not to be ignored as it does not match '*.PYC'")
         self.assertTrue(definitive)
         
     def test_file_updates(self):

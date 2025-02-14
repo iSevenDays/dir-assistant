@@ -4,6 +4,8 @@ import os
 from typing import Dict, List, Tuple, Optional
 from pathspec import PathSpec
 from pathspec.patterns import GitWildMatchPattern
+from pathspec.gitignore import GitIgnoreSpec
+import re
 
 class GitIgnoreManager:
     """Manages .gitignore files and their patterns."""
@@ -37,20 +39,30 @@ class GitIgnoreManager:
         """
         try:
             with open(gitignore_path, 'r') as f:
-                patterns = []
-                for line in f:
-                    line = line.rstrip()
-                    if line and not line.startswith('#'):
-                        if not self.case_sensitive:
-                            line = line.lower()
-                        patterns.append(line)
+                patterns = [line.rstrip() for line in f if line.rstrip() and not line.startswith('#')]
 
             if patterns:
                 rel_dir = os.path.dirname(os.path.relpath(gitignore_path, self.base_dir))
                 if rel_dir == '.':
                     rel_dir = ''
                 # Create a new PathSpec with patterns in the order they appear
-                self._specs[rel_dir] = PathSpec.from_lines(GitWildMatchPattern, patterns)
+                spec = GitIgnoreSpec.from_lines(patterns)
+                # Adjust each pattern's regex based on desired case sensitivity
+                for pattern in spec.patterns:
+                    if pattern.regex:
+                        regex_str = pattern.regex.pattern
+                        if self.case_sensitive:
+                            # Remove 'i' from any inline flags so that matching becomes case sensitive
+                            def repl(m):
+                                flags = m.group(1)
+                                new_flags = flags.replace('i', '')
+                                return f"(?{new_flags}:"
+
+                            regex_str = re.sub(r'\(\?([^:]+):', repl, regex_str)
+                            pattern.regex = re.compile(regex_str)
+                        else:
+                            pattern.regex = re.compile(regex_str, re.IGNORECASE)
+                self._specs[rel_dir] = spec
                 self._mtimes[gitignore_path] = os.path.getmtime(gitignore_path)
         except (IOError, OSError):
             pass
@@ -96,8 +108,6 @@ class GitIgnoreManager:
             - is_definitive: True if this is a definitive answer
         """
         norm_path = os.path.normpath(path).replace("\\", "/")
-        if not self.case_sensitive:
-            norm_path = norm_path.lower()
 
         # Build list of directories from root to file's parent
         path_parts = norm_path.split("/")
@@ -128,5 +138,8 @@ class GitIgnoreManager:
                         result = pattern.include
         
         if result is None:
-            return (False, False)
+            if self._specs:
+                return (False, True)
+            else:
+                return (False, False)
         return (result, True) 
