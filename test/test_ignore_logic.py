@@ -182,7 +182,8 @@ class TestIgnoreLogic(unittest.TestCase):
 
     def test_ignore_file_loading(self):
         """Test loading patterns from an ignore file"""
-        ignore_file = os.path.join(self.test_dir, ".dirassistantignore")
+        # Use a generic ignore file for testing pattern loading
+        ignore_file = os.path.join(self.test_dir, "test.ignore")
         with open(ignore_file, 'w') as f:
             f.write("# Comment line\n")
             f.write("*.pyc\n")

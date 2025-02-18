@@ -10,8 +10,6 @@ from .gitignore_manager import GitIgnoreManager
 class IgnoreHandler:
     """Handles file ignoring based on patterns and .gitignore files."""
     
-    DEFAULT_IGNORE_FILE = ".dirassistantignore"
-    
     def __init__(self, patterns=None, base_dir=None, use_git_ignore=False, case_sensitive=False):
         """Initialize the IgnoreHandler.
         

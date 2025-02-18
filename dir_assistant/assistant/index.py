@@ -30,7 +30,7 @@ def get_text_files(directory=".", ignore_paths=None, use_git_ignore=False):
     Args:
         directory: Base directory to search in.
         ignore_paths: List of gitignore-style patterns or path to ignore file.
-            If None, will look for .dirassistantignore in the base directory.
+            If None, no additional ignore patterns will be used.
         use_git_ignore: Whether to also load and respect .gitignore files in the directory tree.
             
     Returns:
@@ -40,11 +40,9 @@ def get_text_files(directory=".", ignore_paths=None, use_git_ignore=False):
     # Convert target directory to absolute path
     base_dir = os.path.abspath(directory)
     
-    # Check for default ignore file if no patterns provided
+    # Always use an empty list for ignore_paths if None, since we only support .gitignore files
     if ignore_paths is None:
-        default_ignore = os.path.join(base_dir, IgnoreHandler.DEFAULT_IGNORE_FILE)
-        if os.path.isfile(default_ignore):
-            ignore_paths = default_ignore
+        ignore_paths = []
     
     # Initialize ignore handler
     ignore_handler = IgnoreHandler(
@@ -68,7 +66,7 @@ def get_text_files(directory=".", ignore_paths=None, use_git_ignore=False):
         
         # Filter files using the same ignore handler
         for filename in files:
-            # Skip .gitignore files themselves
+            # Skip .gitignore file itself
             if filename == '.gitignore':
                 continue
                 
