@@ -201,6 +201,111 @@ class TestIgnoreLogic(unittest.TestCase):
         self.assertTrue(handler.is_ignored("dist/bundle.js"))
         self.assertFalse(handler.is_ignored("src/file.txt"))
 
+    def test_gitignore_hidden_directories(self):
+        """Test .gitignore patterns with hidden directories."""
+        # Create test directory structure with hidden directories
+        root_gitignore = os.path.join(self.test_dir, ".gitignore")
+        hidden_dir = os.path.join(self.test_dir, ".hidden")
+        hidden_sub = os.path.join(hidden_dir, ".sub")
+        os.makedirs(hidden_sub, exist_ok=True)
+        
+        # Create test files
+        with open(os.path.join(hidden_dir, "file1.txt"), "w") as f:
+            f.write("test")
+        with open(os.path.join(hidden_sub, "file2.txt"), "w") as f:
+            f.write("test")
+            
+        # Test different patterns for hidden directories
+        patterns = [
+            (".*", False),  # A pattern without slash matches only basename; 'file1.txt' does not match '.*'
+            (".hidden/", True),  # Ignore specific hidden dir
+            ("!.hidden/file1.txt", False),  # Un-ignore specific file
+            (".*/", True),  # Ignore all hidden dirs
+        ]
+        
+        for pattern, expected in patterns:
+            with self.subTest(pattern=pattern):
+                with open(root_gitignore, "w") as f:
+                    f.write(pattern + "\n")
+                handler = IgnoreHandler(base_dir=self.test_dir, use_git_ignore=True)
+                self.assertEqual(
+                    handler.is_ignored(".hidden/file1.txt"),
+                    expected,
+                    f"Pattern '{pattern}' failed for '.hidden/file1.txt'"
+                )
+                
+    def test_gitignore_multiple_negations(self):
+        """Test complex scenarios with multiple negation patterns at different levels."""
+        # Create nested directory structure
+        dirs = [
+            os.path.join(self.test_dir, d) for d in [
+                "src",
+                "src/lib",
+                "src/lib/internal"
+            ]
+        ]
+        for d in dirs:
+            os.makedirs(d, exist_ok=True)
+            
+        # Create .gitignore files at different levels
+        with open(os.path.join(self.test_dir, ".gitignore"), "w") as f:
+            f.write("*.log\n")  # Ignore all logs
+            
+        with open(os.path.join(self.test_dir, "src", ".gitignore"), "w") as f:
+            f.write("!*.log\n")  # Un-ignore logs in src
+            f.write("lib/*.log\n")  # Re-ignore logs in lib
+            
+        with open(os.path.join(self.test_dir, "src/lib", ".gitignore"), "w") as f:
+            f.write("!debug.log\n")  # Un-ignore specific log in lib
+            f.write("internal/*.log\n")  # Re-ignore logs in internal
+            
+        handler = IgnoreHandler(base_dir=self.test_dir, use_git_ignore=True)
+        
+        # Test the complex negation hierarchy
+        test_cases = [
+            ("test.log", True),  # Ignored by root
+            ("src/test.log", False),  # Un-ignored by src
+            ("src/lib/test.log", True),  # Re-ignored by src/lib
+            ("src/lib/debug.log", False),  # Un-ignored by lib
+            ("src/lib/internal/debug.log", True),  # Re-ignored by internal
+        ]
+        
+        for path, expected in test_cases:
+            with self.subTest(path=path):
+                self.assertEqual(
+                    handler.is_ignored(path),
+                    expected,
+                    f"Multiple negation test failed for '{path}'"
+                )
+                
+    def test_gitignore_pattern_order(self):
+        """Test that pattern order within the same .gitignore file is respected."""
+        gitignore_path = os.path.join(self.test_dir, ".gitignore")
+        
+        # Test pattern order: last matching pattern takes precedence
+        with open(gitignore_path, "w") as f:
+            f.write("*.txt\n")  # Ignore all txt
+            f.write("!important.txt\n")  # Un-ignore important.txt
+            f.write("important.txt\n")  # Re-ignore important.txt
+            
+        handler = IgnoreHandler(base_dir=self.test_dir, use_git_ignore=True)
+        self.assertTrue(
+            handler.is_ignored("important.txt"),
+            "Last matching pattern (ignore) should take precedence"
+        )
+        
+        # Test opposite order
+        with open(gitignore_path, "w") as f:
+            f.write("important.txt\n")  # Ignore important.txt
+            f.write("!important.txt\n")  # Un-ignore important.txt
+            f.write("*.txt\n")  # Ignore all txt
+            
+        handler = IgnoreHandler(base_dir=self.test_dir, use_git_ignore=True)
+        self.assertTrue(
+            handler.is_ignored("important.txt"),
+            "Last matching pattern (ignore all) should take precedence"
+        )
+
 
 if __name__ == '__main__':
     unittest.main() 
