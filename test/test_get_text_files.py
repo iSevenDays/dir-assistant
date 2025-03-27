@@ -357,6 +357,67 @@ node_modules/
         for excluded in excluded_files:
             self.assertNotIn(excluded, relative_paths)
 
+    def test_ignore_dot_files_in_external_dirs(self):
+        """Test that dot files like .editorconfig are properly ignored in external directories."""
+        # Create a simulated external directory structure
+        workdir = os.path.join(self.root_dir, "workdir")
+        externaldir = os.path.join(self.root_dir, "external")
+        os.makedirs(workdir, exist_ok=True)
+        os.makedirs(externaldir, exist_ok=True)
+        
+        # Create some test files in the external directory
+        with open(os.path.join(externaldir, ".editorconfig"), "w") as f:
+            f.write("root = true\n")
+        with open(os.path.join(externaldir, "regular.txt"), "w") as f:
+            f.write("This is a regular file\n")
+        with open(os.path.join(externaldir, ".gitignore"), "w") as f:
+            f.write("*.log\n")
+        with open(os.path.join(externaldir, "valid.py"), "w") as f:
+            f.write("print('Hello')\n")
+            
+        # Create some dot files in subdirectories as well
+        subdir = os.path.join(externaldir, "subdir")
+        os.makedirs(subdir, exist_ok=True)
+        with open(os.path.join(subdir, ".editorconfig"), "w") as f:
+            f.write("indent_size = 2\n")
+        with open(os.path.join(subdir, "regular.txt"), "w") as f:
+            f.write("This is another regular file\n")
+        
+        # Test with explicit dot file patterns
+        ignore_patterns = [".editorconfig", ".gitignore"]
+        
+        # Change to the workdir to simulate using --dirs "../external"
+        current_dir = os.getcwd()
+        try:
+            os.chdir(workdir)
+            
+            # Get relative path to external dir from workdir
+            relative_external = os.path.relpath(externaldir, workdir)
+            
+            # Run get_text_files with the target being the external directory
+            file_list = get_text_files(relative_external, ignore_patterns)
+            
+            # Convert to a set for easier comparison
+            found_files = set(file_list)
+            
+            # Expected files (ignores should be excluded)
+            expected_files = {"regular.txt", "valid.py", "subdir/regular.txt"}
+            
+            # Verify dot files are properly ignored
+            self.assertEqual(expected_files, found_files,
+                            "Failed to ignore dot files in external directory")
+                            
+            # Also test with directory-independent patterns
+            ignore_patterns2 = ["**/.editorconfig", "**/.gitignore"]
+            file_list2 = get_text_files(relative_external, ignore_patterns2)
+            found_files2 = set(file_list2)
+            self.assertEqual(expected_files, found_files2,
+                            "Failed to ignore dot files with directory-independent patterns")
+                            
+        finally:
+            # Return to original directory
+            os.chdir(current_dir)
+
     def _verify_file_sets(self, actual_paths, expected_files, excluded_files):
         """Helper method to verify file sets match expectations."""
         # Verify expected files are included

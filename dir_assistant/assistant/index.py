@@ -44,7 +44,16 @@ def get_text_files(directory=".", ignore_paths=None, use_git_ignore=False):
     if ignore_paths is None:
         ignore_paths = []
     
-    # Initialize ignore handler
+    # Pre-filter for any basename ignore patterns that might apply to any file
+    # This includes patterns like '.editorconfig' that should be ignored regardless of directory
+    basename_ignores = set()
+    for pattern in ignore_paths:
+        if pattern.startswith('.') and '/' not in pattern:
+            basename_ignores.add(pattern)
+        elif pattern.startswith('**/') and pattern[3:].startswith('.') and '/' not in pattern[3:]:
+            basename_ignores.add(pattern[3:])
+    
+    # Initialize ignore handler with properly processed patterns
     ignore_handler = IgnoreHandler(
         patterns=ignore_paths,
         use_git_ignore=use_git_ignore,
@@ -59,6 +68,10 @@ def get_text_files(directory=".", ignore_paths=None, use_git_ignore=False):
         # Filter directories first to optimize traversal
         filtered_dirs = []
         for d in dirs:
+            # Skip directories that match basename patterns (like .git)
+            if d in basename_ignores:
+                continue
+                
             rel_path = os.path.join(rel_root, d) if rel_root != '.' else d
             if not ignore_handler.is_ignored(rel_path):
                 filtered_dirs.append(d)
@@ -66,6 +79,10 @@ def get_text_files(directory=".", ignore_paths=None, use_git_ignore=False):
         
         # Filter files using the same ignore handler
         for filename in files:
+            # Fast path: Skip files that match basename patterns (like .editorconfig)
+            if filename in basename_ignores:
+                continue
+                
             # Skip .gitignore file itself
             if filename == '.gitignore':
                 continue
