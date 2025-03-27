@@ -421,7 +421,7 @@ def process_files_concurrently(embed, files, embed_chunk_size, verbose):
     all_chunks = []
     all_embeddings = []
     
-    with ThreadPoolExecutor(max_workers=1) as executor:
+    with ThreadPoolExecutor(max_workers=10) as executor:
         # Create list of tasks
         tasks = [
             (embed, filepath, contents, embed_chunk_size, verbose)
