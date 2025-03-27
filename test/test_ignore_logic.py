@@ -340,6 +340,37 @@ class TestIgnoreLogic(unittest.TestCase):
         self.assertEqual([], preprocess_ignore_patterns([]))
         self.assertEqual([], preprocess_ignore_patterns(None))
 
+    def test_external_directory_ignore(self):
+        """Test that files in external directories can be properly ignored."""
+        # Create a subdirectory to simulate an external directory
+        external_dir = os.path.join(self.test_dir, "external")
+        os.makedirs(external_dir, exist_ok=True)
+        
+        # Create a .editorconfig file in the external directory
+        with open(os.path.join(external_dir, ".editorconfig"), "w") as f:
+            f.write("root = true\n")
+            
+        # Create a handler with .editorconfig in the ignore patterns
+        handler = IgnoreHandler([".editorconfig"], base_dir=self.test_dir)
+        
+        # Verify .editorconfig is ignored in the main directory
+        self.assertTrue(handler.is_ignored(".editorconfig"))
+        
+        # The critical test: verify .editorconfig is ignored in the external directory
+        # Use both absolute and relative paths to test both scenarios
+        rel_path = os.path.join("external", ".editorconfig")
+        abs_path = os.path.join(external_dir, ".editorconfig")
+        
+        self.assertTrue(handler.is_ignored(rel_path), 
+                        f"Failed to ignore {rel_path} with patterns: {handler.patterns}")
+        self.assertTrue(handler.is_ignored(abs_path),
+                        f"Failed to ignore {abs_path} with patterns: {handler.patterns}")
+                        
+        # Also test with the pattern explicitly specifying directory-independence
+        handler2 = IgnoreHandler(["**/.editorconfig"], base_dir=self.test_dir)
+        self.assertTrue(handler2.is_ignored(rel_path))
+        self.assertTrue(handler2.is_ignored(abs_path))
+
 
 if __name__ == '__main__':
     unittest.main() 

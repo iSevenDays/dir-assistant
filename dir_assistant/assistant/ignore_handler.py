@@ -24,18 +24,21 @@ class IgnoreHandler:
         self.case_sensitive = case_sensitive
         self._specs = {}
 
+        # Process the patterns to ensure they work across directories
+        processed_patterns = self._preprocess_patterns(patterns)
+
         # If patterns is a string pointing to a file, load its contents
-        if patterns and isinstance(patterns, str):
+        if processed_patterns and isinstance(processed_patterns, str):
             # Make sure we use absolute path for the ignore file
-            patterns_path = os.path.join(self.base_dir, patterns) if not os.path.isabs(patterns) else patterns
+            patterns_path = os.path.join(self.base_dir, processed_patterns) if not os.path.isabs(processed_patterns) else processed_patterns
             if os.path.isfile(patterns_path):
                 with open(patterns_path, 'r') as f:
                     lines = f.readlines()
                 # Filter out empty lines and comments
-                patterns = [line.strip() for line in lines if line.strip() and not line.strip().startswith('#')]
+                processed_patterns = [line.strip() for line in lines if line.strip() and not line.strip().startswith('#')]
 
-        if patterns:
-            self._specs[self.base_dir] = GitIgnoreSpec.from_lines(patterns)
+        if processed_patterns:
+            self._specs[self.base_dir] = GitIgnoreSpec.from_lines(processed_patterns)
 
         # Initialize components
         self._cache = {}  # Changed from IgnoreCache() to a simple dict
@@ -45,26 +48,67 @@ class IgnoreHandler:
         if self._gitignore_manager:
             self._gitignore_manager.load_patterns()
                 
+    def _preprocess_patterns(self, patterns):
+        """Process patterns to make them work consistently across directories.
+        
+        This ensures patterns like ".editorconfig" are matched regardless of directory level.
+        
+        Args:
+            patterns: List of patterns or path to patterns file
+            
+        Returns:
+            Processed list of patterns
+        """
+        if not patterns:
+            return []
+            
+        # If patterns is a string (file path), return it as is
+        if isinstance(patterns, str):
+            return patterns
+            
+        # Process list of patterns
+        processed = []
+        for pattern in patterns:
+            # Skip patterns that are already directory-independent
+            if pattern.startswith("**/"):
+                processed.append(pattern)
+                continue
+                
+            # If pattern is a root-level hidden file/directory (like .git, .editorconfig)
+            if pattern.startswith(".") and "/" not in pattern:
+                # Add both patterns - one for root level, one for any directory
+                processed.append(pattern)
+                processed.append(f"**/{pattern}")
+            else:
+                processed.append(pattern)
+                
+        return processed
+                
     def is_ignored(self, path):
         """Check if a path should be ignored based on the patterns."""
         if not self._specs and not self._gitignore_manager:
             return False
 
         # Normalize path for consistent matching
-        path = os.path.normpath(path).replace("\\", "/")
+        norm_path = os.path.normpath(path).replace("\\", "/")
+        
+        # Always check basename for hidden files at any directory level
+        basename = os.path.basename(norm_path)
+        if basename.startswith(".") and basename in [p.pattern for p in self._get_all_patterns()]:
+            return True
         
         # Check if gitignore files have been modified
         if self._gitignore_manager and self._gitignore_manager.check_updates():
             self._cache.clear()  # Clear cache if gitignore files changed
         
         # Check cache first
-        cache_key = f"{path}:{self.case_sensitive}"
+        cache_key = f"{norm_path}:{self.case_sensitive}"
         if cache_key in self._cache:
             return self._cache[cache_key]
 
         # Check gitignore patterns first - these take precedence over explicit patterns
         if self._gitignore_manager:
-            is_ignored_git, is_definitive = self._gitignore_manager.is_ignored(path)
+            is_ignored_git, is_definitive = self._gitignore_manager.is_ignored(norm_path)
             if is_definitive:
                 self._cache[cache_key] = is_ignored_git
                 return is_ignored_git
@@ -76,7 +120,7 @@ class IgnoreHandler:
         for dir_path, spec in sorted_specs:
             for pattern in spec.patterns:
                 # Determine test string: use full path if pattern contains '/', else basename
-                test_string = path if '/' in pattern.pattern else os.path.basename(path)
+                test_string = norm_path if '/' in pattern.pattern else os.path.basename(norm_path)
                 # If pattern ends with '/' but test_string does not, append '/'
                 if pattern.pattern.endswith('/') and not test_string.endswith('/'):
                     test_string = test_string + '/'
@@ -85,6 +129,17 @@ class IgnoreHandler:
         
         self._cache[cache_key] = is_ignored
         return is_ignored
+    
+    def _get_all_patterns(self):
+        """Get all patterns from all specs.
+        
+        Returns:
+            List of all pattern objects
+        """
+        all_patterns = []
+        for spec in self._specs.values():
+            all_patterns.extend(spec.patterns)
+        return all_patterns
 
     def add_patterns(self, patterns, dir_path=None):
         """Add new ignore patterns for a specific directory."""
