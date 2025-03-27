@@ -45,9 +45,10 @@ def get_text_files(directory=".", ignore_paths=None, use_git_ignore=False):
         ignore_paths = []
     
     # Pre-filter for any basename ignore patterns that might apply to any file
-    # This includes patterns like '.editorconfig' that should be ignored regardless of directory
+    # This includes patterns like dot files that should be ignored regardless of directory
     basename_ignores = set()
     dot_file_patterns = set()
+    
     for pattern in ignore_paths:
         # Direct filename matches (most common for dot files)
         if pattern.startswith('.') and '/' not in pattern:
@@ -73,7 +74,7 @@ def get_text_files(directory=".", ignore_paths=None, use_git_ignore=False):
         # Filter directories first to optimize traversal
         filtered_dirs = []
         for d in dirs:
-            # Skip directories that match basename patterns (like .git)
+            # Skip directories that match basename patterns
             if d in basename_ignores:
                 continue
                 
@@ -82,17 +83,17 @@ def get_text_files(directory=".", ignore_paths=None, use_git_ignore=False):
                 filtered_dirs.append(d)
         dirs[:] = filtered_dirs
         
-        # Filter files using the same ignore handler
+        # Filter files using multiple strategies for robustness without hardcoding
         for filename in files:
-            # Fast path: Skip files that match basename patterns (like .editorconfig)
+            # STRATEGY 1: Fast path - Skip files that match basename patterns directly
             if filename in basename_ignores:
                 continue
 
-            # Fast path for dot files - more aggressive check for Kubernetes environment
+            # STRATEGY 2: Extra robust check for dot files 
             if filename.startswith('.') and filename in dot_file_patterns:
                 continue
                 
-            # Skip .gitignore file itself
+            # STRATEGY 3: Skip .gitignore file itself
             if filename == '.gitignore':
                 continue
                 
@@ -100,6 +101,7 @@ def get_text_files(directory=".", ignore_paths=None, use_git_ignore=False):
             rel_path = os.path.join(rel_root, filename) if rel_root != '.' else filename
             abs_path = os.path.join(root, filename)
             
+            # FINAL STRATEGY: Full ignore handler check
             if (os.path.isfile(abs_path) and
                 not ignore_handler.is_ignored(rel_path) and
                 is_text_file(abs_path)):
@@ -436,7 +438,8 @@ def process_files_concurrently(embed, files, embed_chunk_size, verbose):
 def preprocess_ignore_patterns(ignore_paths):
     """Process ignore patterns to ensure they work across different directories.
     
-    This ensures patterns like ".editorconfig" or ".git" will match in any directory.
+    This ensures patterns like dot files (e.g., ".editorconfig", ".git") will match 
+    in any directory context, making the patterns directory-independent.
     
     Args:
         ignore_paths: List of gitignore-style patterns
@@ -449,19 +452,22 @@ def preprocess_ignore_patterns(ignore_paths):
         
     processed_patterns = []
     for pattern in ignore_paths:
-        # Skip patterns that are already directory-independent
+        # Skip patterns that are already directory-independent (start with **)
         if pattern.startswith("**/"):
             processed_patterns.append(pattern)
             continue
             
-        # If pattern starts with a dot and doesn't have a slash, make it directory-independent
-        # This handles cases like ".editorconfig", ".git", etc.
-        if pattern.startswith(".") and "/" not in pattern:
-            # Add both the original pattern (for the current directory)
-            # and a directory-independent version (for --dirs folders)
+        # Special handling for dot files and simple filenames
+        # If pattern is a simple filename (no path separator) or starts with a dot
+        if "/" not in pattern:
+            # Add the original pattern (for the current directory)
             processed_patterns.append(pattern)
+            
+            # Also add a directory-independent version (for --dirs folders)
+            # This ensures it works in any directory context
             processed_patterns.append(f"**/{pattern}")
         else:
+            # Regular pattern - pass through as is
             processed_patterns.append(pattern)
             
     return processed_patterns
@@ -491,12 +497,18 @@ def debug_ignore_patterns(directory, ignore_paths, use_git_ignore=False):
         debug=True  # Enable detailed logging
     )
     
+    # Identify basename patterns (including dot files) for quick filtering
+    basename_patterns = [
+        p for p in processed_patterns 
+        if "/" not in p  # Direct filename patterns without path separators
+        or (p.startswith("**/") and "/" not in p[3:])  # Directory-independent single file patterns
+    ]
+    
     results = {
         "directory": abs_dir,
         "patterns": processed_patterns,
         "files": {},
-        "basename_patterns": [p for p in processed_patterns if p.startswith(".") and "/" not in p 
-                              or p.startswith("**/") and p[3:].startswith(".")]
+        "basename_patterns": basename_patterns
     }
     
     # Walk the directory and check each file
@@ -512,14 +524,17 @@ def debug_ignore_patterns(directory, ignore_paths, use_git_ignore=False):
                 # Check if this file would be ignored
                 is_ignored = ignore_handler.is_ignored(rel_path)
                 
+                # Check if it matches any basename pattern
+                matches_basename = filename in basename_patterns or any(
+                    p[3:] == filename for p in basename_patterns if p.startswith("**/")
+                )
+                
                 # Store result
                 results["files"][rel_path] = {
                     "ignored": is_ignored,
                     "basename": os.path.basename(rel_path),
                     "is_hidden": filename.startswith("."),
-                    "matches_basename_pattern": filename in results["basename_patterns"] or 
-                                               any(p[3:] == filename for p in results["basename_patterns"] 
-                                                  if p.startswith("**/"))
+                    "matches_basename_pattern": matches_basename
                 }
     
     return results

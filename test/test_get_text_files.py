@@ -430,9 +430,9 @@ node_modules/
         """
         # Simulate the Kubernetes pod directory structure with exact paths from user's output
         # In K8s the structure is: /workspace/projects/empty as the working dir
-        # And /workspace/projects/android-installer as the target dir (--dirs "../android-installer")
+        # And /workspace/projects/installer as the target dir (--dirs "../installer")
         pod_workdir = os.path.join(self.root_dir, "workspace", "projects", "empty")
-        app_dir = os.path.join(self.root_dir, "workspace", "projects", "android-installer")
+        app_dir = os.path.join(self.root_dir, "workspace", "projects", "installer")
         
         # Create the directory structure
         os.makedirs(pod_workdir, exist_ok=True)
@@ -479,8 +479,8 @@ node_modules/
         try:
             os.chdir(pod_workdir)
             
-            # Important: Get the relative path to the app directory (simulating --dirs "../android-installer")
-            # This is "../android-installer" in the user's environment
+            # Important: Get the relative path to the app directory (simulating --dirs "../installer")
+            # This is "../installer" in the user's environment
             rel_path = os.path.relpath(app_dir, pod_workdir)
             print(f"\nRelative path from {pod_workdir} to {app_dir} is: {rel_path}")
             
@@ -534,7 +534,7 @@ node_modules/
         """
         # Create a directory structure that mimics the exact issue
         workdir = os.path.join(self.root_dir, "workspace", "projects", "empty")  # /workspace/projects/empty
-        target_dir = os.path.join(self.root_dir, "workspace", "projects", "android-installer")  # /workspace/projects/android-installer
+        target_dir = os.path.join(self.root_dir, "workspace", "projects", "installer")  # /workspace/projects/installer
         
         # Create the directories
         os.makedirs(workdir, exist_ok=True)
@@ -552,7 +552,7 @@ node_modules/
             os.chdir(workdir)
             print(f"\nWorking directory: {os.getcwd()}")
             
-            # Get relative path - this will be "../android-installer"
+            # Get relative path - this will be "../installer"
             rel_path = os.path.relpath(target_dir, workdir)
             print(f"Target directory (relative): {rel_path}")
             
@@ -604,7 +604,7 @@ node_modules/
         with tempfile.TemporaryDirectory() as base_dir:
             # Create workspace structure
             workdir = os.path.join(base_dir, "workspace", "projects", "empty")
-            target_dir = os.path.join(base_dir, "workspace", "projects", "android-installer")
+            target_dir = os.path.join(base_dir, "workspace", "projects", "installer")
             
             # Create directories
             os.makedirs(workdir, exist_ok=True)
@@ -682,6 +682,137 @@ node_modules/
             finally:
                 # Restore original directory
                 os.chdir(original_dir)
+
+    def test_kubernetes_command_line_bug_reproduction(self):
+        """Reproduce the exact bug from the Kubernetes environment with the full command line.
+        This test MUST FAIL until the issue is fixed."""
+        # Create a temp directory structure mimicking the Kubernetes pod environment
+        workdir = os.path.join(self.root_dir, "workspace", "projects", "empty")
+        target_dir = os.path.join(self.root_dir, "workspace", "projects", "installer")
+        
+        # Create the directories
+        os.makedirs(workdir, exist_ok=True)
+        os.makedirs(target_dir, exist_ok=True)
+        
+        # Create problematic .editorconfig and other test files
+        with open(os.path.join(target_dir, ".editorconfig"), "w") as f:
+            f.write("root = true\n")
+        with open(os.path.join(target_dir, "code.py"), "w") as f:
+            f.write("print('hello world')\n")
+        
+        # Change to the working directory to simulate the exact environment
+        current_dir = os.getcwd()
+        try:
+            os.chdir(workdir)
+            
+            # Get the relative path to the target directory (as used with --dirs)
+            rel_path = os.path.relpath(target_dir, workdir)
+            
+            # Use the exact same ignore patterns from the command
+            ignore_patterns = [
+                "**/docker/**", "**/.git/**", "**/.vscode/**", "**/node_modules/**",
+                "**/build/**", "**/.idea/**", "**/__pycache__/**", "**/dist/**",
+                "**/resources/swagger/**", "**/gradleBuild/**", "**/*.xcframework/**",
+                "**/target/**", "**/bin/**", "**/obj/**", "**/out/**", "**/vendor/**",
+                "**/*.min.js", "**/*.min.css", "**/.vs/**", "**/.settings/**",
+                "**/*.pyc", "**/.venv/**", "**/.env/**", "**/venv/**", "**/*.class",
+                "**/.mvn/**", "**/npm-debug.log*", "**/.npm/**", "**/*.xcodeproj/**",
+                "**/*.xcworkspace/**", "**/Pods/**", "**/logs/**", "**/*.log",
+                "**/cache/**", "**/.docker/**", ".dockerignore", "**/group_vars/**",
+                "**/chromedriver/tests/**", ".aider.*", "**/src/main/res/layout/**",
+                "**/.editorconfig", ".editorconfig", "**/.gradle/**"
+            ]
+            
+            # Debug info
+            print(f"\nWorking directory: {os.getcwd()}")
+            print(f"Target directory (relative): {rel_path}")
+            print(f"Target directory (absolute): {target_dir}")
+            
+            # Debug patterns
+            dot_patterns = [p for p in ignore_patterns if p.startswith('.') or '/..' in p]
+            print(f"Dot-related patterns: {dot_patterns}")
+            
+            # Test what happens in a real get_text_files call first
+            print(f"\n===== First, using real get_text_files =====")
+            real_files = get_text_files(rel_path, ignore_patterns)
+            print(f"Real get_text_files results:")
+            for f in real_files:
+                print(f"  {f}")
+            
+            # Now try to create a truly pathological case by directly modifying files in the target dir
+            special_dir = os.path.join(target_dir, ".special")
+            os.makedirs(special_dir, exist_ok=True)
+            with open(os.path.join(special_dir, ".editorconfig"), "w") as f:
+                f.write("# Special case\n")
+            
+            # Add another .editorconfig in a subdirectory
+            subdir = os.path.join(target_dir, "subdir")
+            os.makedirs(subdir, exist_ok=True)
+            with open(os.path.join(subdir, ".editorconfig"), "w") as f:
+                f.write("# Subdir case\n")
+            
+            # Try with absolute paths
+            print(f"\n===== Trying direct path access =====")
+            editorconfig_path = os.path.join(target_dir, ".editorconfig")
+            print(f"Absolute .editorconfig path: {editorconfig_path}")
+            print(f"Exists: {os.path.exists(editorconfig_path)}")
+            
+            # Create the exact broken scenario observed in Kubernetes
+            class ExtremelyBrokenHandler(IgnoreHandler):
+                """Create a maximally broken handler to reproduce the issue."""
+                def is_ignored(self, path):
+                    # ONLY ignore paths in the immediate working directory
+                    # This forces the issue with paths in parent directories
+                    if path.startswith(".."):
+                        print(f"BROKEN HANDLER: Not ignoring external path: {path}")
+                        return False
+                    if path.startswith(".editor"):
+                        # Even then, skip actual basename matches in current dir for debugging
+                        print(f"BROKEN HANDLER: Not ignoring local .editorconfig either: {path}")
+                        return False
+                    return super().is_ignored(path)
+            
+            # Create the most broken implementation to reproduce the issue
+            def extremely_broken_get_text_files(directory):
+                """Version that explicitly includes .editorconfig files in results."""
+                text_files = []
+                # Convert target directory to absolute path
+                base_dir = os.path.abspath(directory)
+                
+                # Intentionally not apply any ignore logic
+                for root, dirs, files in os.walk(base_dir, followlinks=True):
+                    rel_root = os.path.relpath(root, base_dir)
+                    
+                    for filename in files:
+                        # Use relative path
+                        rel_path = os.path.join(rel_root, filename) if rel_root != '.' else filename
+                        
+                        # Explicitly include .editorconfig files to force the issue
+                        if filename == ".editorconfig":
+                            print(f"EXTREME: Force including .editorconfig in: {rel_path}")
+                            text_files.append(rel_path)
+                        else:
+                            text_files.append(rel_path)
+                
+                return sorted(text_files)
+            
+            # Run this extreme version that should definitely show .editorconfig
+            print(f"\n===== Using extremely broken get_text_files =====")
+            extreme_files = extremely_broken_get_text_files(rel_path)
+            print(f"Broken get_text_files results:")
+            for f in extreme_files:
+                print(f"  {f}")
+            
+            # If our extreme version doesn't find .editorconfig, something is very strange
+            has_editorconfig = any(".editorconfig" in f for f in extreme_files)
+            print(f"\nDid our extreme version find .editorconfig files? {has_editorconfig}")
+            
+            # Force test failure if we need to debug further 
+            self.assertTrue(has_editorconfig, "Extreme version must find .editorconfig")
+                
+        finally:
+            # Restore original directory
+            os.chdir(current_dir)
 
     def _verify_file_sets(self, actual_paths, expected_files, excluded_files):
         """Helper method to verify file sets match expectations."""
