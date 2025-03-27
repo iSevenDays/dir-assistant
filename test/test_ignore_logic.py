@@ -4,6 +4,7 @@ import tempfile
 import shutil
 from pathlib import Path
 from dir_assistant.assistant.ignore_handler import IgnoreHandler
+from dir_assistant.assistant.index import preprocess_ignore_patterns
 
 
 class TestIgnoreLogic(unittest.TestCase):
@@ -305,6 +306,39 @@ class TestIgnoreLogic(unittest.TestCase):
             handler.is_ignored("important.txt"),
             "Last matching pattern (ignore all) should take precedence"
         )
+
+    def test_preprocess_ignore_patterns(self):
+        """Test that preprocess_ignore_patterns correctly handles different types of patterns."""
+        # Test basic patterns
+        patterns = [".editorconfig", "node_modules/", "*.pyc"]
+        processed = preprocess_ignore_patterns(patterns)
+        
+        # Verify .editorconfig has two versions
+        self.assertIn(".editorconfig", processed)
+        self.assertIn("**/.editorconfig", processed)
+        
+        # Verify other patterns are unchanged
+        self.assertIn("node_modules/", processed)
+        self.assertIn("*.pyc", processed)
+        
+        # Test patterns that are already directory-independent
+        patterns = ["**/node_modules/**", "**/.git/**"]
+        processed = preprocess_ignore_patterns(patterns)
+        self.assertEqual(patterns, processed)
+        
+        # Test mixed patterns
+        patterns = [".git", "**/node_modules/**", ".vscode", "build/"]
+        processed = preprocess_ignore_patterns(patterns)
+        self.assertIn(".git", processed)
+        self.assertIn("**/.git", processed)
+        self.assertIn(".vscode", processed)
+        self.assertIn("**/.vscode", processed)
+        self.assertIn("**/node_modules/**", processed)
+        self.assertIn("build/", processed)
+        
+        # Test empty list
+        self.assertEqual([], preprocess_ignore_patterns([]))
+        self.assertEqual([], preprocess_ignore_patterns(None))
 
 
 if __name__ == '__main__':

@@ -127,15 +127,22 @@ def create_file_index(
     cache_db = get_file_path(CACHE_PATH, INDEX_CACHE_FILENAME)
     if verbose:
         print(f"cache_db path: {cache_db}")
+        
+    # Process ignore paths for path independence
+    processed_ignore_paths = preprocess_ignore_patterns(ignore_paths)
+    if verbose and processed_ignore_paths != ignore_paths:
+        print(f"Processed ignore patterns: {processed_ignore_paths}")
+        
     # Start with current directory
-    files_with_contents = get_files_with_contents(".", ignore_paths, cache_db, use_git_ignore)
+    files_with_contents = get_files_with_contents(".", processed_ignore_paths, cache_db, use_git_ignore)
 
     # Add files from additional folders
     for folder in extra_dirs:
         # Convert relative paths to absolute to ensure they exist check works properly
         abs_folder_path = os.path.abspath(folder)
         if os.path.exists(abs_folder_path):
-            folder_files = get_files_with_contents(abs_folder_path, ignore_paths, cache_db, use_git_ignore)
+            # Apply the same ignore patterns to the target directory
+            folder_files = get_files_with_contents(abs_folder_path, processed_ignore_paths, cache_db, use_git_ignore)
             files_with_contents.extend(folder_files)
         else:
             if verbose:
@@ -153,7 +160,7 @@ def create_file_index(
                 "Dir-assistant requires a file to be initialized, so this one was created because "
                 "the directory was empty."
             )
-        files_with_contents = get_files_with_contents(".", ignore_paths, cache_db, use_git_ignore)
+        files_with_contents = get_files_with_contents(".", processed_ignore_paths, cache_db, use_git_ignore)
 
     chunks = []
     embeddings_list = []
@@ -389,3 +396,37 @@ def process_files_concurrently(embed, files, embed_chunk_size, verbose):
             all_embeddings.extend(file_embeddings)
             
     return all_chunks, all_embeddings
+
+
+def preprocess_ignore_patterns(ignore_paths):
+    """Process ignore patterns to ensure they work across different directories.
+    
+    This ensures patterns like ".editorconfig" or ".git" will match in any directory.
+    
+    Args:
+        ignore_paths: List of gitignore-style patterns
+        
+    Returns:
+        Processed list of patterns that will work in any directory context
+    """
+    if not ignore_paths:
+        return []
+        
+    processed_patterns = []
+    for pattern in ignore_paths:
+        # Skip patterns that are already directory-independent
+        if pattern.startswith("**/"):
+            processed_patterns.append(pattern)
+            continue
+            
+        # If pattern starts with a dot and doesn't have a slash, make it directory-independent
+        # This handles cases like ".editorconfig", ".git", etc.
+        if pattern.startswith(".") and "/" not in pattern:
+            # Add both the original pattern (for the current directory)
+            # and a directory-independent version (for --dirs folders)
+            processed_patterns.append(pattern)
+            processed_patterns.append(f"**/{pattern}")
+        else:
+            processed_patterns.append(pattern)
+            
+    return processed_patterns
