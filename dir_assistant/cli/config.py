@@ -84,6 +84,9 @@ def check_defaults(config_dict, defaults_dict):
 
 def set_environment_overrides(config_dict):
     """Replace config values with environment variable overrides"""
+    
+    # Add a list to track overridden values
+    overridden_values = []
 
     def _override_config(config_branch, prefix=""):
         for key, value in config_branch.items():
@@ -91,10 +94,21 @@ def set_environment_overrides(config_dict):
             if isinstance(value, dict):
                 config_branch[key] = _override_config(value, prefix=env_key)
             elif env_key in environ:
+                old_value = config_branch[key]
                 config_branch[key] = coerce_setting_string_value(environ[env_key])
+                # Track the override
+                overridden_values.append((env_key, str(old_value), str(config_branch[key])))
         return config_branch
 
-    return _override_config(config_dict)
+    config_dict = _override_config(config_dict)
+    
+    # Print overridden values if any were found
+    if overridden_values:
+        print("Environment overrides applied:")
+        for env_key, old_value, new_value in overridden_values:
+            print(f"  {env_key}: {old_value} -> {new_value}")
+    
+    return config_dict
 
 
 def coerce_setting_string_value(value_str):

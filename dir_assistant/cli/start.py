@@ -132,11 +132,19 @@ see readme for more information. Exiting..."""
     # Initialize the embedding model
     if verbose:
         print(f"{Fore.LIGHTBLACK_EX}Loading embedding model...{Style.RESET_ALL}")
+        # Add detailed logging for embedding configuration
+        print(f"{Fore.LIGHTBLACK_EX}Embedding configuration:{Style.RESET_ALL}")
+        print(f"{Fore.LIGHTBLACK_EX}  Model: {lite_llm_embed_model}{Style.RESET_ALL}")
+        print(f"{Fore.LIGHTBLACK_EX}  Chunk size: {lite_llm_embed_chunk_size}{Style.RESET_ALL}")
+        print(f"{Fore.LIGHTBLACK_EX}  Request delay: {lite_llm_embed_request_delay}{Style.RESET_ALL}")
+        
     if active_embed_is_local:
         embed = LlamaCppEmbed(
             model_path=embed_model_file, embed_options=llama_cpp_embed_options
         )
         embed_chunk_size = embed.get_chunk_size()
+        if verbose:
+            print(f"{Fore.LIGHTBLACK_EX}Using local embedding model with chunk size: {embed_chunk_size}{Style.RESET_ALL}")
     else:
         embed = LiteLlmEmbed(
             lite_llm_embed_model=lite_llm_embed_model,
@@ -144,6 +152,8 @@ see readme for more information. Exiting..."""
             delay=lite_llm_embed_request_delay,
         )
         embed_chunk_size = lite_llm_embed_chunk_size
+        if verbose:
+            print(f"{Fore.LIGHTBLACK_EX}Using remote embedding model with chunk size: {embed_chunk_size}{Style.RESET_ALL}")
 
     # Create the file index
     if verbose or chat_mode:
