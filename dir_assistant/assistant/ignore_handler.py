@@ -25,11 +25,14 @@ class IgnoreHandler:
         self._specs = {}
 
         # If patterns is a string pointing to a file, load its contents
-        if patterns and isinstance(patterns, str) and os.path.isfile(patterns):
-            with open(patterns, 'r') as f:
-                lines = f.readlines()
-            # Filter out empty lines and comments
-            patterns = [line.strip() for line in lines if line.strip() and not line.strip().startswith('#')]
+        if patterns and isinstance(patterns, str):
+            # Make sure we use absolute path for the ignore file
+            patterns_path = os.path.join(self.base_dir, patterns) if not os.path.isabs(patterns) else patterns
+            if os.path.isfile(patterns_path):
+                with open(patterns_path, 'r') as f:
+                    lines = f.readlines()
+                # Filter out empty lines and comments
+                patterns = [line.strip() for line in lines if line.strip() and not line.strip().startswith('#')]
 
         if patterns:
             self._specs[self.base_dir] = GitIgnoreSpec.from_lines(patterns)

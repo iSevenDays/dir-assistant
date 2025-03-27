@@ -86,27 +86,38 @@ def get_text_files(directory=".", ignore_paths=None, use_git_ignore=False):
 def get_files_with_contents(directory, ignore_paths, cache_db, use_git_ignore=False):
     text_files = get_text_files(directory, ignore_paths, use_git_ignore)
     files_with_contents = []
+    # Convert directory to absolute path to ensure consistent path resolution
+    base_dir = os.path.abspath(directory)
+    
     with SqliteDict(cache_db, autocommit=True) as cache:
         for filepath in text_files:
-            file_stat = os.stat(filepath)
-            file_info = cache.get(filepath)
-            if file_info and file_info["mtime"] == file_stat.st_mtime:
-                files_with_contents.append(file_info)
-            else:
-                try:
-                    with open(filepath, "r") as file:
-                        contents = file.read()
-                except UnicodeDecodeError:
-                    print(
-                        f"{Fore.LIGHTBLACK_EX}Skipping {filepath} because it is not a text file.{Style.RESET_ALL}"
-                    )
-                file_info = {
-                    "filepath": os.path.abspath(filepath),
-                    "contents": contents,
-                    "mtime": file_stat.st_mtime,
-                }
-                cache[filepath] = file_info
-                files_with_contents.append(file_info)
+            # Resolve the file path relative to the specified directory
+            abs_path = os.path.join(base_dir, filepath)
+            
+            try:
+                file_stat = os.stat(abs_path)
+                file_info = cache.get(filepath)
+                if file_info and file_info["mtime"] == file_stat.st_mtime:
+                    files_with_contents.append(file_info)
+                else:
+                    try:
+                        with open(abs_path, "r") as file:
+                            contents = file.read()
+                    except UnicodeDecodeError:
+                        print(
+                            f"{Fore.LIGHTBLACK_EX}Skipping {filepath} because it is not a text file.{Style.RESET_ALL}"
+                        )
+                        continue
+                    file_info = {
+                        "filepath": os.path.abspath(abs_path),
+                        "contents": contents,
+                        "mtime": file_stat.st_mtime,
+                    }
+                    cache[filepath] = file_info
+                    files_with_contents.append(file_info)
+            except (FileNotFoundError, PermissionError) as e:
+                print(f"{Fore.LIGHTBLACK_EX}Error accessing {abs_path}: {str(e)}{Style.RESET_ALL}")
+                continue
     return files_with_contents
 
 
@@ -121,8 +132,10 @@ def create_file_index(
 
     # Add files from additional folders
     for folder in extra_dirs:
-        if os.path.exists(folder):
-            folder_files = get_files_with_contents(folder, ignore_paths, cache_db, use_git_ignore)
+        # Convert relative paths to absolute to ensure they exist check works properly
+        abs_folder_path = os.path.abspath(folder)
+        if os.path.exists(abs_folder_path):
+            folder_files = get_files_with_contents(abs_folder_path, ignore_paths, cache_db, use_git_ignore)
             files_with_contents.extend(folder_files)
         else:
             if verbose:
