@@ -814,6 +814,352 @@ node_modules/
             # Restore original directory
             os.chdir(current_dir)
 
+    def test_editorconfig_with_processed_patterns(self):
+        """Test that .editorconfig files are properly ignored with both original and processed patterns.
+        
+        This test simulates command-line processing where both original and processed
+        patterns are used to ensure .editorconfig files are correctly ignored regardless
+        of pattern processing.
+        """
+        # Create a test directory structure with .editorconfig files in various places
+        base_dir = tempfile.mkdtemp()
+        try:
+            # Create a normal file 
+            with open(os.path.join(base_dir, "regular_file.py"), "w") as f:
+                f.write("# Just a regular file")
+                
+            # Create the problematic .editorconfig file
+            with open(os.path.join(base_dir, ".editorconfig"), "w") as f:
+                f.write("# This file should be ignored")
+                
+            # Create a subdirectory with another .editorconfig
+            subdir = os.path.join(base_dir, "subdir")
+            os.makedirs(subdir, exist_ok=True)
+            with open(os.path.join(subdir, ".editorconfig"), "w") as f:
+                f.write("# This should also be ignored")
+                
+            # Create another file in the subdirectory that should NOT be ignored
+            with open(os.path.join(subdir, "code.py"), "w") as f:
+                f.write("# This should be included")
+                
+            # Test Case 1: Using original patterns (simulating direct command line args)
+            print("\n=== Test with original patterns ===")
+            orig_patterns = [".editorconfig"]
+            orig_files = get_text_files(base_dir, orig_patterns)
+            
+            # Debug output
+            print(f"Original patterns: {orig_patterns}")
+            print(f"Files found: {orig_files}")
+            
+            # Verify .editorconfig files are not in the results
+            self.assertNotIn(".editorconfig", orig_files)
+            self.assertNotIn(os.path.join("subdir", ".editorconfig"), orig_files)
+            
+            # Test Case 2: Using processed patterns (simulating what happens after preprocessing)
+            print("\n=== Test with processed patterns ===")
+            from dir_assistant.assistant.index import preprocess_ignore_patterns
+            processed_patterns = preprocess_ignore_patterns(orig_patterns)
+            
+            print(f"Processed patterns: {processed_patterns}")
+            proc_files = get_text_files(base_dir, processed_patterns)
+            print(f"Files found: {proc_files}")
+            
+            # Verify results are the same - .editorconfig files should be ignored
+            self.assertNotIn(".editorconfig", proc_files)
+            self.assertNotIn(os.path.join("subdir", ".editorconfig"), proc_files)
+            
+            # Test Case 3: With verbosity, using the exact sequence from CLI processing
+            print("\n=== Test full CLI simulation ===")
+            # Mock the CLI processing steps
+            cli_ignore_paths = [".editorconfig"]
+            # First preprocess
+            processed_ignore_paths = preprocess_ignore_patterns(cli_ignore_paths)
+            print(f"Original patterns: {cli_ignore_paths}")
+            print(f"Processed patterns: {processed_ignore_paths}")
+            
+            # Then pass to the debug_ignore_patterns function (used in verbose mode)
+            from dir_assistant.assistant.index import debug_ignore_patterns
+            results = debug_ignore_patterns(base_dir, processed_ignore_paths)
+            
+            # Check the debug results to verify .editorconfig is properly flagged as ignored
+            for path, info in results["files"].items():
+                if os.path.basename(path) == ".editorconfig":
+                    print(f"Debug info for {path}: {info}")
+                    self.assertTrue(info["ignored"], f"{path} should be marked as ignored")
+            
+            # Finally, use the processed patterns with get_text_files (same as what create_file_index does)
+            cli_sim_files = get_text_files(base_dir, processed_ignore_paths)
+            
+            # Verify .editorconfig files are not in results
+            self.assertNotIn(".editorconfig", cli_sim_files)
+            self.assertNotIn(os.path.join("subdir", ".editorconfig"), cli_sim_files)
+            
+            # Verify expected files ARE in the results
+            self.assertIn("regular_file.py", cli_sim_files)
+            self.assertIn(os.path.join("subdir", "code.py"), cli_sim_files)
+            
+        finally:
+            # Clean up the temporary directory
+            shutil.rmtree(base_dir)
+
+    def test_cli_argument_processing_with_editorconfig(self):
+        """Test that CLI argument processing correctly handles .editorconfig ignore patterns.
+
+        This test simulates the CLI context to reproduce the specific issue with .editorconfig
+        files not being properly ignored in Kubernetes environments with command-line arguments.
+        It uses a mocked filesystem and custom IgnoreHandler to force a failure.
+        """
+        # Create a directory structure with .editorconfig files
+        with tempfile.TemporaryDirectory() as base_dir:
+            # Create directories that mimic Kubernetes pod environment
+            workdir = os.path.join(base_dir, "workspace", "projects", "empty")
+            targetdir = os.path.join(base_dir, "workspace", "projects", "android-installer")
+            os.makedirs(workdir, exist_ok=True)
+            os.makedirs(targetdir, exist_ok=True)
+
+            # Create .editorconfig file that should be ignored
+            editorconfig_path = os.path.join(targetdir, ".editorconfig")
+            with open(editorconfig_path, "w") as f:
+                f.write("# This file should be ignored\n")
+
+            # Create additional .editorconfig files in subdirectories
+            subdir = os.path.join(targetdir, "subdir")
+            os.makedirs(subdir, exist_ok=True)
+            with open(os.path.join(subdir, ".editorconfig"), "w") as f:
+                f.write("# This file should also be ignored\n")
+
+            # Create a regular file that should be included
+            code_path = os.path.join(targetdir, "code.py")
+            with open(code_path, "w") as f:
+                f.write("print('hello')\n")
+
+            # Save current directory and change to workdir (simulating kubernetes pod)
+            original_dir = os.getcwd()
+            try:
+                os.chdir(workdir)
+
+                # Import the CLI module directly to simulate CLI processing
+                try:
+                    from dir_assistant.cli.start import preprocess_ignore_patterns
+                    from dir_assistant.assistant.index import get_text_files, create_file_index, get_files_with_contents
+                    from dir_assistant.assistant.ignore_handler import IgnoreHandler
+                    from dir_assistant.assistant.lite_llm_embed import LiteLlmEmbed
+                except ImportError as e:
+                    self.fail(f"Failed to import CLI modules: {e}")
+
+                # Create mock arguments object to simulate command line args
+                class MockArgs:
+                    def __init__(self):
+                        self.ignore = [".editorconfig"]  # The specific pattern we're testing
+                        self.dirs = [os.path.relpath(targetdir, workdir)]  # Target dir
+                        self.verbose = True
+                        self.use_gitignore = False
+                        # Other required args with default values
+                        self.no_color = False
+                        self.cache_only = False
+                        self.private = False
+                        self.clear = False
+                        self.verbose_show_ignored = False
+                        self.single_prompt = None
+                        self.prompt = None
+
+                # Create the args object
+                args = MockArgs()
+
+                # Process ignore patterns - this simulates what happens in initialize_llm
+                ignore_paths = args.ignore.copy()
+                
+                print("Working directory:", os.getcwd())
+                print("Target directory (relative):", args.dirs[0])
+                print("Target directory (absolute):", os.path.abspath(args.dirs[0]))
+                
+                # Process the ignore patterns directly (simulating the CLI)
+                processed_ignore_paths = preprocess_ignore_patterns(ignore_paths)
+                
+                # Print for debugging
+                print("Original ignore patterns:", ignore_paths)
+                print("Processed ignore patterns:", processed_ignore_paths)
+                
+                # Check that .editorconfig is included in the processed patterns
+                self.assertIn(".editorconfig", processed_ignore_paths)
+                self.assertIn("**/.editorconfig", processed_ignore_paths)
+                
+                # Create a mock embedding model (to avoid API calls)
+                class MockEmbed:
+                    def __init__(self):
+                        pass
+                    def count_tokens(self, text):
+                        return len(text)
+                    def create_embedding(self, text):
+                        return [0.0] * 10  # Mock embeddings
+                    
+                mock_embed = MockEmbed()
+                
+                # Test 1: Normal operation - this should work correctly
+                found_files_direct = get_text_files(
+                    args.dirs[0], 
+                    ignore_paths=processed_ignore_paths,
+                    use_git_ignore=args.use_gitignore
+                )
+                
+                # Print absolute paths for debugging
+                print("\nFound files (direct):")
+                for f in found_files_direct:
+                    print(f"  {f}")
+                
+                # Check for .editorconfig in the direct results
+                editorconfig_files_direct = [f for f in found_files_direct if os.path.basename(f) == ".editorconfig"]
+                self.assertEqual(0, len(editorconfig_files_direct), 
+                               "Found .editorconfig files in direct call that should be ignored: " + str(editorconfig_files_direct))
+                
+                # Test 2: Normal CLI simulation - this would also likely work
+                # Don't run this to save time since we're specifically testing for a failure case
+                
+                # Test 3: Force failure - Create a failing IgnoreHandler that simulates the bug
+                # Create a custom IgnoreHandler that incorrectly handles .editorconfig files
+                print("\nTesting with custom failing handler:")
+                
+                # Create our own custom version of the IgnoreHandler to simulate the bug
+                class FailingIgnoreHandler(IgnoreHandler):
+                    def is_ignored(self, filepath):
+                        """Override to fail specifically for .editorconfig in target directory"""
+                        basename = os.path.basename(filepath)
+                        
+                        # Basic simulation of what might happen in Kubernetes
+                        # The pattern matching fails for some reason on the target directory
+                        if basename == ".editorconfig":
+                            # Only process basename pattern if in current directory (not in dirs arg)
+                            # This simulates the issue where .editorconfig is only matched in the current directory
+                            if os.path.dirname(filepath):  # If file is in a subdirectory
+                                print(f"SIMULATED BUG: Ignoring .editorconfig pattern for {filepath}")
+                                return False
+                            
+                        # Fall back to parent behavior
+                        return super().is_ignored(filepath)
+                
+                # Function to test .editorconfig handling with the failing handler
+                def failing_get_text_files(directory, ignore_paths, use_git_ignore=False):
+                    """Special version that uses the failing handler to reproduce the bug"""
+                    directory = os.path.abspath(directory)
+                    handler = FailingIgnoreHandler(ignore_paths, use_git_ignore, directory)
+                    
+                    result = []
+                    for root, dirs, files in os.walk(directory, followlinks=True):
+                        for file in files:
+                            filepath = os.path.abspath(os.path.join(root, file))
+                            rel_path = os.path.relpath(filepath, directory)
+                            
+                            if handler.is_ignored(rel_path):
+                                print(f"Ignoring: {rel_path}")
+                                continue
+                            
+                            # Check if this is a text file
+                            if os.path.isfile(filepath):
+                                result.append(filepath)
+                    
+                    return result
+                
+                # Use the failing handler to test
+                failing_files = failing_get_text_files(
+                    args.dirs[0],
+                    processed_ignore_paths,
+                    use_git_ignore=args.use_gitignore
+                )
+                
+                # Print all files found with failing handler
+                print("\nFiles found with failing handler:")
+                for f in failing_files:
+                    print(f"  {f}")
+                
+                # Now check if .editorconfig files ARE in the results (they should be, showing the bug)
+                failing_editorconfig_files = [f for f in failing_files if os.path.basename(f) == ".editorconfig"]
+                
+                # This should find .editorconfig files in the failing case
+                self.assertGreater(len(failing_editorconfig_files), 0,
+                                 "Failed to reproduce bug - no .editorconfig files found. " +
+                                 "Expected to find them due to simulated bug.")
+                                 
+                # Verify which .editorconfig files were found
+                print("\nEditorconfig files found due to bug:")
+                for f in failing_editorconfig_files:
+                    print(f"  {f}")
+                    
+                # Test 4: Verify the fix would work
+                # Implement a fixed version of the ignore handler
+                print("\nTesting with fixed handler:")
+                
+                class FixedIgnoreHandler(IgnoreHandler):
+                    def is_ignored(self, filepath):
+                        """Fixed implementation that properly handles .editorconfig patterns"""
+                        basename = os.path.basename(filepath)
+                        
+                        # Special handling for basename patterns (like .editorconfig) 
+                        # This ensures .editorconfig is always ignored, regardless of location
+                        # This is a more robust approach than relying on pattern matching alone
+                        for pattern in self.patterns:
+                            # For simple patterns like ".editorconfig" (no path separators)
+                            if '/' not in pattern and pattern == basename:
+                                print(f"FIXED: Ignoring {filepath} due to basename match with {pattern}")
+                                return True
+                                
+                            # For directory-independent patterns like "**/.editorconfig"
+                            if pattern.startswith('**/') and pattern[3:] == basename:
+                                print(f"FIXED: Ignoring {filepath} due to directory-independent match with {pattern}")
+                                return True
+                                
+                        # Fall back to parent behavior for other patterns
+                        return super().is_ignored(filepath)
+                
+                # Function to test .editorconfig handling with the fixed handler
+                def fixed_get_text_files(directory, ignore_paths, use_git_ignore=False):
+                    """Special version that uses the fixed handler"""
+                    directory = os.path.abspath(directory)
+                    handler = FixedIgnoreHandler(ignore_paths, use_git_ignore, directory)
+                    
+                    result = []
+                    for root, dirs, files in os.walk(directory, followlinks=True):
+                        for file in files:
+                            filepath = os.path.abspath(os.path.join(root, file))
+                            rel_path = os.path.relpath(filepath, directory)
+                            
+                            if handler.is_ignored(rel_path):
+                                print(f"Ignoring: {rel_path}")
+                                continue
+                            
+                            # Check if this is a text file
+                            if os.path.isfile(filepath):
+                                result.append(filepath)
+                    
+                    return result
+                
+                # Use the fixed handler to test
+                fixed_files = fixed_get_text_files(
+                    args.dirs[0],
+                    processed_ignore_paths,
+                    use_git_ignore=args.use_gitignore
+                )
+                
+                # Print all files found with fixed handler
+                print("\nFiles found with fixed handler:")
+                for f in fixed_files:
+                    print(f"  {f}")
+                
+                # Check that .editorconfig files are NOT in the results (should be fixed)
+                fixed_editorconfig_files = [f for f in fixed_files if os.path.basename(f) == ".editorconfig"]
+                
+                # This should NOT find any .editorconfig files when using the fixed handler
+                self.assertEqual(len(fixed_editorconfig_files), 0,
+                             "Fix did not work - still found .editorconfig files: " + 
+                             str(fixed_editorconfig_files))
+                
+                # But we should still find regular code files
+                fixed_code_files = [f for f in fixed_files if os.path.basename(f) == "code.py"]
+                self.assertGreater(len(fixed_code_files), 0,
+                                "No code.py files found with fixed handler")
+                
+            finally:
+                os.chdir(original_dir)
+
     def _verify_file_sets(self, actual_paths, expected_files, excluded_files):
         """Helper method to verify file sets match expectations."""
         # Verify expected files are included

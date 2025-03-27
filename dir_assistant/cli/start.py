@@ -10,7 +10,7 @@ from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.keys import Keys
 
 from dir_assistant.assistant.file_watcher import start_file_watcher
-from dir_assistant.assistant.index import create_file_index, debug_ignore_patterns
+from dir_assistant.assistant.index import create_file_index, debug_ignore_patterns, preprocess_ignore_patterns
 from dir_assistant.assistant.lite_llm_assistant import LiteLLMAssistant
 from dir_assistant.assistant.lite_llm_embed import LiteLlmEmbed
 from dir_assistant.assistant.llama_cpp_assistant import LlamaCppAssistant
@@ -51,6 +51,20 @@ def display_startup_art(commit_to_git, no_color=False):
 
 
 def run_single_prompt(args, config_dict):
+    # Get ignore paths the same way as in the start function
+    ignore_paths = args.ignore if args.ignore else []
+    config = config_dict["DIR_ASSISTANT"] if "DIR_ASSISTANT" in config_dict else config_dict
+    ignore_paths.extend(config["GLOBAL_IGNORES"])
+    
+    # Process ignore patterns to ensure they work across directories - ALWAYS do this, not just in verbose mode
+    processed_ignore_paths = preprocess_ignore_patterns(ignore_paths)
+    
+    # For diagnostic purposes in verbose mode
+    if args.verbose and not args.verbose_show_ignored:  # Only show if not already shown
+        print(f"{Fore.GREEN}Ignore patterns in single-prompt mode:{Style.RESET_ALL}")
+        print(f"{Fore.LIGHTBLACK_EX}Original patterns: {ignore_paths}{Style.RESET_ALL}")
+        print(f"{Fore.LIGHTBLACK_EX}Processed patterns: {processed_ignore_paths}{Style.RESET_ALL}")
+    
     llm = initialize_llm(args, config_dict, chat_mode=False)
     llm.initialize_history()
     response = llm.run_stream_processes(args.single_prompt, True)
@@ -230,18 +244,22 @@ def start(args, config_dict):
         ignore_paths = args.ignore if args.ignore else []
         ignore_paths.extend(config_dict["GLOBAL_IGNORES"])
         
+        # Ensure we're using the same processed patterns that will be used later
+        processed_ignore_paths = preprocess_ignore_patterns(ignore_paths)
+        
         print(f"{Fore.GREEN}Analyzing ignore patterns...{Style.RESET_ALL}")
-        print(f"{Fore.LIGHTBLACK_EX}Using patterns: {ignore_paths}{Style.RESET_ALL}")
+        print(f"{Fore.LIGHTBLACK_EX}Input patterns: {ignore_paths}{Style.RESET_ALL}")
+        print(f"{Fore.LIGHTBLACK_EX}Processed patterns that will be used: {processed_ignore_paths}{Style.RESET_ALL}")
         
         # Debug current directory first
-        results = debug_ignore_patterns(".", ignore_paths, args.use_gitignore)
+        results = debug_ignore_patterns(".", processed_ignore_paths, args.use_gitignore)
         print(f"\n{Fore.GREEN}Results for current directory:{Style.RESET_ALL}")
         print_ignore_results(results)
         
         # Debug each extra directory
         extra_dirs = args.dirs if args.dirs else []
         for directory in extra_dirs:
-            dir_results = debug_ignore_patterns(directory, ignore_paths, args.use_gitignore)
+            dir_results = debug_ignore_patterns(directory, processed_ignore_paths, args.use_gitignore)
             print(f"\n{Fore.GREEN}Results for directory '{directory}':{Style.RESET_ALL}")
             print_ignore_results(dir_results)
             

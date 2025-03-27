@@ -118,6 +118,66 @@ class IgnoreHandler:
         # Always check basename for hidden files at any directory level
         basename = os.path.basename(norm_path)
         search_basename = basename.lower() if not self.case_sensitive else basename
+        
+        # ENHANCEMENT: Add explicit check for basename patterns and directory-independent patterns
+        # This ensures patterns like .editorconfig are always matched regardless of directory structure
+        # Get all original patterns (not regex compiled ones)
+        pattern_strings = []
+        pattern_is_negated = {}  # Track which patterns are negations
+        
+        for spec in self._specs.values():
+            for pattern in spec.patterns:
+                pattern_str = pattern.pattern
+                # Track negation status
+                is_negated = pattern_str.startswith('!')
+                if is_negated:
+                    pattern_str = pattern_str[1:]  # Remove negation prefix
+                pattern_is_negated[pattern_str] = is_negated
+                # Add to list of patterns for direct matching
+                pattern_strings.append(pattern_str)
+        
+        # Case normalize pattern strings if needed
+        if not self.case_sensitive:
+            normalized_patterns = {}
+            for p in pattern_strings:
+                p_lower = p.lower()
+                normalized_patterns[p_lower] = pattern_is_negated.get(p, False)
+            pattern_strings = list(normalized_patterns.keys())
+            pattern_is_negated = normalized_patterns
+        
+        # Check for direct basename matches, but respect negation
+        # We need to find all matching patterns first and then apply negation rules
+        matching_patterns = []
+        
+        for pattern in pattern_strings:
+            # Check for simple filename patterns (no path separators)
+            exact_match = False
+            if '/' not in pattern and pattern == search_basename:
+                matching_patterns.append((pattern, True))  # Add with match status
+                exact_match = True
+            
+            # Check for directory-independent patterns like "**/.editorconfig"
+            elif pattern.startswith('**/') and pattern[3:] == search_basename:
+                matching_patterns.append((pattern, True))
+                exact_match = True
+                
+            if exact_match and self.debug:
+                logger.debug(f"Direct match: {basename} matches pattern {pattern}")
+            
+        # Apply negation logic - if any non-negated pattern matches AND no negated pattern
+        # specifically excludes this path, then it should be ignored
+        if matching_patterns:
+            # If we have any matches, first check if there are any negated patterns
+            # that specifically target this basename
+            has_non_negated_match = any(not pattern_is_negated.get(p, False) for p, matched in matching_patterns if matched)
+            has_negated_match = any(pattern_is_negated.get(p, False) for p, matched in matching_patterns if matched)
+            
+            if has_non_negated_match and not has_negated_match:
+                if self.debug:
+                    logger.debug(f"Pattern matching result for {basename}: ignored=True (direct basename match)")
+                return True
+        
+        # Continue with normal pattern matching
         all_patterns = [p.pattern for p in self._get_all_patterns()]
         
         # Get case-normalized patterns for matching
@@ -129,7 +189,7 @@ class IgnoreHandler:
                 pattern_list.append(p)
         
         # Fast path for basename matches (especially for dot files)
-        if search_basename.startswith(".") and search_basename in pattern_list:
+        if search_basename.startswith(".") and search_basename in pattern_list and '!' + search_basename not in pattern_list:
             if self.debug:
                 logger.debug(f"Fast path match: {basename} is in pattern list, ignoring {norm_path}")
             return True

@@ -55,9 +55,11 @@ def get_text_files(directory=".", ignore_paths=None, use_git_ignore=False):
             basename_ignores.add(pattern)
             dot_file_patterns.add(pattern)
         # Directory-independent patterns with leading **/ (matches any level)  
-        elif pattern.startswith('**/') and pattern[3:].startswith('.') and '/' not in pattern[3:]:
+        elif pattern.startswith('**/') and '/' not in pattern[3:]:
             basename_ignores.add(pattern[3:])
-            dot_file_patterns.add(pattern[3:])
+            # If it also starts with a dot, add to dot file patterns
+            if pattern[3:].startswith('.'):
+                dot_file_patterns.add(pattern[3:])
     
     # Initialize ignore handler with properly processed patterns
     ignore_handler = IgnoreHandler(
@@ -158,7 +160,8 @@ def create_file_index(
         
     # Process ignore paths for path independence
     processed_ignore_paths = preprocess_ignore_patterns(ignore_paths)
-    if verbose and processed_ignore_paths != ignore_paths:
+    if verbose:
+        print(f"Original ignore patterns: {ignore_paths}")
         print(f"Processed ignore patterns: {processed_ignore_paths}")
         
     # Start with current directory
@@ -176,9 +179,11 @@ def create_file_index(
             folder_files = get_files_with_contents(abs_folder_path, processed_ignore_paths, cache_db, use_git_ignore)
             
             if verbose:
-                skipped_files = [os.path.basename(f) for f in processed_ignore_paths if os.path.basename(f).startswith('.')]
-                if skipped_files:
-                    print(f"Basename patterns that should be skipped: {skipped_files}")
+                # Debug info - check for important dot files
+                dot_patterns = [p for p in processed_ignore_paths if p.startswith('.') or 
+                             (p.startswith('**/') and p[3:].startswith('.'))]
+                if dot_patterns:
+                    print(f"Dot-related patterns: {dot_patterns}")
                     
             files_with_contents.extend(folder_files)
         else:
