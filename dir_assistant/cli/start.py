@@ -209,9 +209,6 @@ see readme for more information. Exiting..."""
         )
         exit(1)
 
-    ignore_paths = args.ignore if args.ignore else []
-    ignore_paths.extend(config["GLOBAL_IGNORES"])
-
     extra_dirs = args.dirs if args.dirs else []
 
     # Initialize the embedding model
@@ -244,8 +241,12 @@ see readme for more information. Exiting..."""
                 request_delay=lite_llm_embed_request_delay
             )
 
-    # Get processed ignore paths - args.processed_ignore_paths is guaranteed to be set by now
-    processed_ignore_paths = args.processed_ignore_paths
+    # Make sure ignore patterns have been processed
+    if not hasattr(args, 'processed_ignore_paths'):
+        processed_ignore_paths, _ = setup_ignore_patterns(args, config_dict)
+    else:
+        # Get processed ignore paths - args.processed_ignore_paths is guaranteed to be set by now
+        processed_ignore_paths = args.processed_ignore_paths
     
     # Debug print for verbose mode
     if verbose:
