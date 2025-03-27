@@ -158,14 +158,13 @@ def create_file_index(
     if verbose:
         print(f"cache_db path: {cache_db}")
         
-    # Process ignore paths for path independence
-    processed_ignore_paths = preprocess_ignore_patterns(ignore_paths)
+    # The ignore_paths should already be processed by setup_ignore_patterns() from start.py
+    # No need to process them again here
     if verbose:
-        print(f"Original ignore patterns: {ignore_paths}")
-        print(f"Processed ignore patterns: {processed_ignore_paths}")
+        print(f"Using processed ignore patterns: {ignore_paths}")
         
     # Start with current directory
-    files_with_contents = get_files_with_contents(".", processed_ignore_paths, cache_db, use_git_ignore)
+    files_with_contents = get_files_with_contents(".", ignore_paths, cache_db, use_git_ignore)
 
     # Add files from additional folders
     for folder in extra_dirs:
@@ -176,11 +175,11 @@ def create_file_index(
                 print(f"Processing additional directory: {abs_folder_path}")
                 
             # Apply the same ignore patterns to the target directory
-            folder_files = get_files_with_contents(abs_folder_path, processed_ignore_paths, cache_db, use_git_ignore)
+            folder_files = get_files_with_contents(abs_folder_path, ignore_paths, cache_db, use_git_ignore)
             
             if verbose:
                 # Debug info - check for important dot files
-                dot_patterns = [p for p in processed_ignore_paths if p.startswith('.') or 
+                dot_patterns = [p for p in ignore_paths if p.startswith('.') or 
                              (p.startswith('**/') and p[3:].startswith('.'))]
                 if dot_patterns:
                     print(f"Dot-related patterns: {dot_patterns}")
@@ -202,7 +201,7 @@ def create_file_index(
                 "Dir-assistant requires a file to be initialized, so this one was created because "
                 "the directory was empty."
             )
-        files_with_contents = get_files_with_contents(".", processed_ignore_paths, cache_db, use_git_ignore)
+        files_with_contents = get_files_with_contents(".", ignore_paths, cache_db, use_git_ignore)
 
     chunks = []
     embeddings_list = []
@@ -483,7 +482,7 @@ def debug_ignore_patterns(directory, ignore_paths, use_git_ignore=False):
     
     Args:
         directory: Base directory to check in
-        ignore_paths: List of ignore patterns to apply
+        ignore_paths: List of ignore patterns to apply (already processed by setup_ignore_patterns)
         use_git_ignore: Whether to also respect .gitignore files
         
     Returns:
@@ -491,8 +490,9 @@ def debug_ignore_patterns(directory, ignore_paths, use_git_ignore=False):
     """
     abs_dir = os.path.abspath(directory)
     
-    # Process ignore patterns for consistency
-    processed_patterns = preprocess_ignore_patterns(ignore_paths)
+    # The patterns should already be processed when this function is called
+    # We don't need to preprocess them again
+    processed_patterns = ignore_paths
     
     # Set up the ignore handler with debug mode enabled
     ignore_handler = IgnoreHandler(

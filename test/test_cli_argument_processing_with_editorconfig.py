@@ -54,7 +54,10 @@ class TestEditorConfigCLI:
             # Process ignore paths the same way the CLI does
             ignore_paths = args.ignore if args.ignore else []
             ignore_paths.extend(config["GLOBAL_IGNORES"])
-            processed_ignore_paths = preprocess_ignore_patterns(ignore_paths)
+            
+            # Make a copy to avoid modification (matching the new implementation)
+            full_ignore_paths = list(ignore_paths)
+            processed_ignore_paths = preprocess_ignore_patterns(full_ignore_paths)
             
             # Test 1: Verify that processed patterns include .editorconfig
             assert ".editorconfig" in processed_ignore_paths or "**/.editorconfig" in processed_ignore_paths
@@ -64,7 +67,8 @@ class TestEditorConfigCLI:
             assert "code.py" in text_files
             assert ".editorconfig" not in text_files
             
-            # Store the processed ignore paths in args for completeness
+            # Store the processed ignore paths in args for completeness (matching the new implementation)
+            args.full_ignore_paths = full_ignore_paths
             args.processed_ignore_paths = processed_ignore_paths
             
             print("All tests passed - CLI arguments correctly ignore .editorconfig files") 

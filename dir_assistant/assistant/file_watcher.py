@@ -121,7 +121,7 @@ def start_file_watcher(
     Args:
         directory: Directory to watch
         embed: Embedding model instance
-        ignore_paths: List of paths to ignore (preprocessed with preprocess_ignore_patterns)
+        ignore_paths: List of paths to ignore (already preprocessed by setup_ignore_patterns)
         embed_chunk_size: Size of chunks for embedding
         llm_updated_index_callback: Callback when index is updated
         use_git_ignore: Whether to respect .gitignore files
@@ -129,15 +129,20 @@ def start_file_watcher(
     Returns:
         The file system observer
     """
+    # Note: We're using the already processed ignore patterns from setup_ignore_patterns
+    # No need to call preprocess_ignore_patterns again
+    
     event_handler = FileChangeHandler(
         embed=embed,
         ignore_paths=ignore_paths,
         embed_chunk_size=embed_chunk_size,
         llm_updated_index_callback=llm_updated_index_callback,
-        directory=directory,
+        base_dir=directory,
         use_git_ignore=use_git_ignore
     )
+    
     observer = Observer()
     observer.schedule(event_handler, directory, recursive=True)
     observer.start()
+    
     return observer

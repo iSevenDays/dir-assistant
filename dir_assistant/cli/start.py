@@ -27,6 +27,51 @@ litellm.suppress_debug_info = True
 MODELS_PATH = os.path.expanduser("~/.local/share/dir-assistant/models")
 
 
+def get_config_section(config_dict):
+    """Extract the appropriate config section from the configuration dictionary.
+    
+    Args:
+        config_dict: The full configuration dictionary
+        
+    Returns:
+        The DIR_ASSISTANT section if it exists, otherwise the full config
+    """
+    return config_dict["DIR_ASSISTANT"] if "DIR_ASSISTANT" in config_dict else config_dict
+
+
+def setup_ignore_patterns(args, config_dict):
+    """Set up and process all ignore patterns consistently.
+    
+    This centralizes pattern handling to ensure consistent behavior across
+    all parts of the application.
+    
+    Args:
+        args: The command line arguments containing ignore patterns
+        config_dict: The configuration dictionary with global ignores
+        
+    Returns:
+        tuple: (processed_ignore_paths, full_ignore_paths)
+    """
+    # Get the proper config section
+    config = get_config_section(config_dict)
+    
+    # Get all command line ignore patterns
+    all_cli_ignore_patterns = args.ignore if args.ignore else []
+    
+    # Combine CLI ignores with global ignores
+    full_ignore_paths = list(all_cli_ignore_patterns)  # Make a copy to avoid modification issues
+    full_ignore_paths.extend(config["GLOBAL_IGNORES"])
+    
+    # Process for consistency across directories
+    processed_ignore_paths = preprocess_ignore_patterns(full_ignore_paths)
+    
+    # Store for use in other functions
+    args.full_ignore_paths = full_ignore_paths
+    args.processed_ignore_paths = processed_ignore_paths
+    
+    return processed_ignore_paths, full_ignore_paths
+
+
 def display_startup_art(commit_to_git, no_color=False):
     sys.stdout.write(
         f"""{Style.RESET_ALL if no_color else Style.BRIGHT}{Style.RESET_ALL if no_color else Fore.GREEN}
@@ -50,23 +95,47 @@ def display_startup_art(commit_to_git, no_color=False):
     print("")
 
 
-def run_single_prompt(args, config_dict):
-    # Get ignore paths the same way as in the start function
-    ignore_paths = args.ignore if args.ignore else []
-    config = config_dict["DIR_ASSISTANT"] if "DIR_ASSISTANT" in config_dict else config_dict
-    ignore_paths.extend(config["GLOBAL_IGNORES"])
+def print_ignore_pattern_debug(original_patterns, processed_patterns, mode=""):
+    """Print debug information about ignore patterns.
     
-    # Process ignore patterns to ensure they work across directories - ALWAYS do this, not just in verbose mode
-    processed_ignore_paths = preprocess_ignore_patterns(ignore_paths)
+    Args:
+        original_patterns: The original unprocessed patterns
+        processed_patterns: The processed patterns after preprocessing
+        mode: Optional context label for the output (e.g., "single-prompt mode")
+    """
+    title = f"Ignore patterns{' in ' + mode if mode else ''}:"
+    print(f"{Fore.GREEN}{title}{Style.RESET_ALL}")
+    print(f"{Fore.LIGHTBLACK_EX}Original patterns: {original_patterns}{Style.RESET_ALL}")
+    print(f"{Fore.LIGHTBLACK_EX}Processed patterns: {processed_patterns}{Style.RESET_ALL}")
+
+
+def print_embedding_debug_info(is_local, model_info, chunk_size, request_delay=None):
+    """Print debug information about the embedding model configuration.
+    
+    Args:
+        is_local: Whether the model is local or remote
+        model_info: Name or path of the model
+        chunk_size: Chunk size for the embedding model
+        request_delay: Optional delay between requests (for remote models)
+    """
+    model_type = "local" if is_local else "remote"
+    print(f"{Fore.LIGHTBLACK_EX}Using {model_type} embedding model with chunk size: {chunk_size}{Style.RESET_ALL}")
+    
+    if model_info:
+        print(f"{Fore.LIGHTBLACK_EX}  Model: {model_info}{Style.RESET_ALL}")
+    
+    if request_delay is not None:
+        print(f"{Fore.LIGHTBLACK_EX}  Request delay: {request_delay}{Style.RESET_ALL}")
+
+
+def run_single_prompt(args, config_dict):
+    # Set up ignore patterns if they haven't been processed yet
+    if not hasattr(args, 'processed_ignore_paths'):
+        setup_ignore_patterns(args, config_dict)
     
     # For diagnostic purposes in verbose mode
     if args.verbose and not args.verbose_show_ignored:  # Only show if not already shown
-        print(f"{Fore.GREEN}Ignore patterns in single-prompt mode:{Style.RESET_ALL}")
-        print(f"{Fore.LIGHTBLACK_EX}Original patterns: {ignore_paths}{Style.RESET_ALL}")
-        print(f"{Fore.LIGHTBLACK_EX}Processed patterns: {processed_ignore_paths}{Style.RESET_ALL}")
-    
-    # Store processed patterns back in args for use in initialize_llm
-    args.processed_ignore_paths = processed_ignore_paths
+        print_ignore_pattern_debug(args.full_ignore_paths, args.processed_ignore_paths, "single-prompt mode")
     
     llm = initialize_llm(args, config_dict, chat_mode=False)
     llm.initialize_history()
@@ -77,10 +146,8 @@ def run_single_prompt(args, config_dict):
 
 
 def initialize_llm(args, config_dict, chat_mode=True):
-    # Check if we're working with the full config dict or just DIR_ASSISTANT section
-    config = (
-        config_dict["DIR_ASSISTANT"] if "DIR_ASSISTANT" in config_dict else config_dict
-    )
+    # Get the proper config section
+    config = get_config_section(config_dict)
 
     # Main settings
     active_model_is_local = config["ACTIVE_MODEL_IS_LOCAL"]
@@ -147,32 +214,21 @@ see readme for more information. Exiting..."""
 
     extra_dirs = args.dirs if args.dirs else []
 
-    # Ensure ignore paths are preprocessed
-    if hasattr(args, 'processed_ignore_paths'):
-        processed_ignore_paths = args.processed_ignore_paths
-    else:
-        processed_ignore_paths = preprocess_ignore_patterns(ignore_paths)
-        
-    # Debug print for verbose mode
-    if verbose:
-        print(f"{Fore.LIGHTBLACK_EX}Using these processed ignore patterns for file index: {processed_ignore_paths}{Style.RESET_ALL}")
-
     # Initialize the embedding model
     if verbose:
         print(f"{Fore.LIGHTBLACK_EX}Loading embedding model...{Style.RESET_ALL}")
-        # Add detailed logging for embedding configuration
-        print(f"{Fore.LIGHTBLACK_EX}Embedding configuration:{Style.RESET_ALL}")
-        print(f"{Fore.LIGHTBLACK_EX}  Model: {lite_llm_embed_model}{Style.RESET_ALL}")
-        print(f"{Fore.LIGHTBLACK_EX}  Chunk size: {lite_llm_embed_chunk_size}{Style.RESET_ALL}")
-        print(f"{Fore.LIGHTBLACK_EX}  Request delay: {lite_llm_embed_request_delay}{Style.RESET_ALL}")
-        
+    
     if active_embed_is_local:
         embed = LlamaCppEmbed(
             model_path=embed_model_file, embed_options=llama_cpp_embed_options
         )
         embed_chunk_size = embed.get_chunk_size()
         if verbose:
-            print(f"{Fore.LIGHTBLACK_EX}Using local embedding model with chunk size: {embed_chunk_size}{Style.RESET_ALL}")
+            print_embedding_debug_info(
+                is_local=True,
+                model_info=embed_model_file,
+                chunk_size=embed_chunk_size
+            )
     else:
         embed = LiteLlmEmbed(
             lite_llm_embed_model=lite_llm_embed_model,
@@ -181,8 +237,20 @@ see readme for more information. Exiting..."""
         )
         embed_chunk_size = lite_llm_embed_chunk_size
         if verbose:
-            print(f"{Fore.LIGHTBLACK_EX}Using remote embedding model with chunk size: {embed_chunk_size}{Style.RESET_ALL}")
+            print_embedding_debug_info(
+                is_local=False,
+                model_info=lite_llm_embed_model,
+                chunk_size=embed_chunk_size,
+                request_delay=lite_llm_embed_request_delay
+            )
 
+    # Get processed ignore paths - args.processed_ignore_paths is guaranteed to be set by now
+    processed_ignore_paths = args.processed_ignore_paths
+    
+    # Debug print for verbose mode
+    if verbose:
+        print_ignore_pattern_debug(args.full_ignore_paths, processed_ignore_paths, "file indexing")
+        
     # Create the file index
     if verbose or chat_mode:
         print(
@@ -252,20 +320,13 @@ def start(args, config_dict):
     if config_dict["VERBOSE"]:
         print(f"dir-assistant {VERSION}")
 
+    # Set up all ignore patterns - do this first thing
+    processed_ignore_paths, full_ignore_paths = setup_ignore_patterns(args, config_dict)
+
     # Handle --verbose-show-ignored flag
     if args.verbose_show_ignored:
-        ignore_paths = args.ignore if args.ignore else []
-        ignore_paths.extend(config_dict["GLOBAL_IGNORES"])
-        
-        # Ensure we're using the same processed patterns that will be used later
-        processed_ignore_paths = preprocess_ignore_patterns(ignore_paths)
-        
-        # Store processed patterns for use elsewhere in the code
-        args.processed_ignore_paths = processed_ignore_paths
-        
         print(f"{Fore.GREEN}Analyzing ignore patterns...{Style.RESET_ALL}")
-        print(f"{Fore.LIGHTBLACK_EX}Input patterns: {ignore_paths}{Style.RESET_ALL}")
-        print(f"{Fore.LIGHTBLACK_EX}Processed patterns that will be used: {processed_ignore_paths}{Style.RESET_ALL}")
+        print_ignore_pattern_debug(full_ignore_paths, processed_ignore_paths)
         
         # Debug current directory first
         results = debug_ignore_patterns(".", processed_ignore_paths, args.use_gitignore)
@@ -298,11 +359,6 @@ def start(args, config_dict):
         exit(0)
 
     # Get variables needed for file watcher and startup art
-    is_full_config = "DIR_ASSISTANT" in config_dict
-    config = config_dict["DIR_ASSISTANT"] if is_full_config else config_dict
-
-    ignore_paths = args.ignore if args.ignore else []
-    ignore_paths.extend(config["GLOBAL_IGNORES"])
     commit_to_git = config["COMMIT_TO_GIT"]
     embed = llm.embed
     active_embed_is_local = config["ACTIVE_EMBED_IS_LOCAL"]
@@ -312,14 +368,11 @@ def start(args, config_dict):
         else embed.get_chunk_size()
     )
 
-    # Process ignore paths to ensure they work correctly in all directories
-    processed_ignore_paths = preprocess_ignore_patterns(ignore_paths)
-    
-    # Start file watcher. It is running in another thread after this.
+    # Start file watcher with processed ignore paths - use the patterns we already processed earlier
     watcher = start_file_watcher(
         ".", 
         embed, 
-        processed_ignore_paths,  # Use processed ignore paths here
+        args.processed_ignore_paths,
         embed_chunk_size, 
         llm.update_index_and_chunks,
         use_git_ignore=args.use_gitignore
