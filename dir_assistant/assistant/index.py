@@ -47,11 +47,16 @@ def get_text_files(directory=".", ignore_paths=None, use_git_ignore=False):
     # Pre-filter for any basename ignore patterns that might apply to any file
     # This includes patterns like '.editorconfig' that should be ignored regardless of directory
     basename_ignores = set()
+    dot_file_patterns = set()
     for pattern in ignore_paths:
+        # Direct filename matches (most common for dot files)
         if pattern.startswith('.') and '/' not in pattern:
             basename_ignores.add(pattern)
+            dot_file_patterns.add(pattern)
+        # Directory-independent patterns with leading **/ (matches any level)  
         elif pattern.startswith('**/') and pattern[3:].startswith('.') and '/' not in pattern[3:]:
             basename_ignores.add(pattern[3:])
+            dot_file_patterns.add(pattern[3:])
     
     # Initialize ignore handler with properly processed patterns
     ignore_handler = IgnoreHandler(
@@ -81,6 +86,10 @@ def get_text_files(directory=".", ignore_paths=None, use_git_ignore=False):
         for filename in files:
             # Fast path: Skip files that match basename patterns (like .editorconfig)
             if filename in basename_ignores:
+                continue
+
+            # Fast path for dot files - more aggressive check for Kubernetes environment
+            if filename.startswith('.') and filename in dot_file_patterns:
                 continue
                 
             # Skip .gitignore file itself

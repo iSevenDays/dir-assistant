@@ -3,7 +3,8 @@ import os
 import tempfile
 import shutil
 from pathlib import Path
-from dir_assistant.assistant.index import get_text_files
+from dir_assistant.assistant.index import get_text_files, preprocess_ignore_patterns, debug_ignore_patterns
+from dir_assistant.assistant.ignore_handler import IgnoreHandler
 
 class TestGetTextFiles(unittest.TestCase):
     def setUp(self):
@@ -11,6 +12,9 @@ class TestGetTextFiles(unittest.TestCase):
         self.root_dir = tempfile.mkdtemp()
         self.company_dir = os.path.join(self.root_dir, "company")
         self.work_dir = os.path.join(self.root_dir, "empty")
+        
+        # Enable detailed debugging for tests
+        self.debug_output = True
         
         # Create the working directory
         os.makedirs(self.work_dir)
@@ -417,6 +421,267 @@ node_modules/
         finally:
             # Return to original directory
             os.chdir(current_dir)
+            
+    def test_kubernetes_pod_environment(self):
+        """Test that simulates the Kubernetes pod environment where files are mounted.
+        
+        This specifically tests the failure case where .editorconfig files aren't properly
+        ignored when using --dirs in a Kubernetes environment with mounted volumes.
+        """
+        # Simulate the Kubernetes pod directory structure with exact paths from user's output
+        # In K8s the structure is: /workspace/projects/empty as the working dir
+        # And /workspace/projects/android-installer as the target dir (--dirs "../android-installer")
+        pod_workdir = os.path.join(self.root_dir, "workspace", "projects", "empty")
+        app_dir = os.path.join(self.root_dir, "workspace", "projects", "android-installer")
+        
+        # Create the directory structure
+        os.makedirs(pod_workdir, exist_ok=True)
+        os.makedirs(app_dir, exist_ok=True)
+        
+        # Create test files including .editorconfig that should be ignored
+        with open(os.path.join(app_dir, ".editorconfig"), "w") as f:
+            f.write("root = true\n")
+        with open(os.path.join(app_dir, "regular.txt"), "w") as f:
+            f.write("regular file\n")
+        with open(os.path.join(app_dir, "code.py"), "w") as f:
+            f.write("print('hello')\n")
+        
+        # Create some "normal" dot files that might not be caught by specific patterns
+        with open(os.path.join(app_dir, ".gitignore"), "w") as f:
+            f.write("*.log\n")
+        with open(os.path.join(app_dir, ".gitlab-ci.yml"), "w") as f:
+            f.write("stages: [test]\n")
+            
+        # Create subdirectory with another .editorconfig
+        subdir = os.path.join(app_dir, "lib")
+        os.makedirs(subdir, exist_ok=True)
+        with open(os.path.join(subdir, ".editorconfig"), "w") as f:
+            f.write("indent_size = 2\n")
+        with open(os.path.join(subdir, "helper.py"), "w") as f:
+            f.write("def help(): pass\n")
+            
+        # Simulate the exact ignore patterns from the user's command
+        ignore_patterns = [
+            "**/docker/**", "**/.git/**", "**/.vscode/**", "**/node_modules/**",
+            "**/build/**", "**/.idea/**", "**/__pycache__/**", "**/dist/**",
+            ".editorconfig", "**/.editorconfig"
+        ]
+        
+        # Always use debug_ignore_patterns to check pattern handling
+        results = debug_ignore_patterns(app_dir, ignore_patterns, False)
+        print("\nDebug output for ignore patterns in target directory:")
+        for file_path, data in results['files'].items():
+            if '.editor' in file_path:
+                print(f"  {file_path}: ignored={data['ignored']} matches_basename={data['matches_basename_pattern']}")
+        
+        # Change to the pod working directory
+        current_dir = os.getcwd()
+        try:
+            os.chdir(pod_workdir)
+            
+            # Important: Get the relative path to the app directory (simulating --dirs "../android-installer")
+            # This is "../android-installer" in the user's environment
+            rel_path = os.path.relpath(app_dir, pod_workdir)
+            print(f"\nRelative path from {pod_workdir} to {app_dir} is: {rel_path}")
+            
+            # Get the text files - first with preprocess_ignore_patterns()
+            processed_patterns = preprocess_ignore_patterns(ignore_patterns)
+            print(f"\nProcessed patterns: {processed_patterns}")
+            
+            # Check pattern matching in the current directory context
+            cwd_debug = debug_ignore_patterns(".", processed_patterns, False)
+            print("\nDebug output for ignore patterns in current directory:")
+            for file_path, data in cwd_debug['files'].items():
+                if os.path.basename(file_path).startswith('.'):
+                    print(f"  {file_path}: ignored={data['ignored']} matches_basename={data['matches_basename_pattern']}")
+            
+            # Now get files with the processed patterns
+            file_list = get_text_files(rel_path, processed_patterns)
+            found_files = set(file_list)
+            
+            # Print all found files for debugging
+            print("\nFound files:")
+            for f in sorted(found_files):
+                print(f"  {f}")
+            
+            # Try with explicit absolute path to test a different approach
+            print("\nTrying with absolute path:")
+            abs_files = get_text_files(app_dir, processed_patterns)
+            print(f"Found {len(abs_files)} files with absolute path")
+            
+            # Expected files (no .editorconfig files)
+            expected_files = {"regular.txt", "code.py", "lib/helper.py"}
+            
+            # This should verify .editorconfig files are ignored
+            self.assertNotIn(".editorconfig", found_files, ".editorconfig should be ignored")
+            self.assertNotIn("lib/.editorconfig", found_files, "lib/.editorconfig should be ignored")
+            
+            # Additional file verification
+            self.assertIn("regular.txt", found_files, "regular.txt should be included")
+            self.assertIn("code.py", found_files, "code.py should be included")
+            self.assertIn("lib/helper.py", found_files, "lib/helper.py should be included")
+                
+        finally:
+            # Return to original directory
+            os.chdir(current_dir)
+
+    def test_kubernetes_external_path_editorconfig_ignore(self):
+        """Test specifically focused on .editorconfig files when using external paths.
+        
+        This test directly reproduces the issue reported in the Kubernetes environment
+        where .editorconfig files are not properly ignored when using --dirs with
+        external paths, especially with paths containing '../'.
+        """
+        # Create a directory structure that mimics the exact issue
+        workdir = os.path.join(self.root_dir, "workspace", "projects", "empty")  # /workspace/projects/empty
+        target_dir = os.path.join(self.root_dir, "workspace", "projects", "android-installer")  # /workspace/projects/android-installer
+        
+        # Create the directories
+        os.makedirs(workdir, exist_ok=True)
+        os.makedirs(target_dir, exist_ok=True)
+        
+        # Create test files including the problematic .editorconfig
+        with open(os.path.join(target_dir, ".editorconfig"), "w") as f:
+            f.write("root = true\n")
+        with open(os.path.join(target_dir, "code.py"), "w") as f:
+            f.write("print('hello')\n")
+            
+        # Change to the working directory to simulate the exact environment
+        current_dir = os.getcwd()
+        try:
+            os.chdir(workdir)
+            print(f"\nWorking directory: {os.getcwd()}")
+            
+            # Get relative path - this will be "../android-installer"
+            rel_path = os.path.relpath(target_dir, workdir)
+            print(f"Target directory (relative): {rel_path}")
+            
+            # These are the exact patterns that should catch .editorconfig
+            ignore_patterns = [".editorconfig", "**/.editorconfig"]
+            processed_patterns = preprocess_ignore_patterns(ignore_patterns)
+            print(f"Processed ignore patterns: {processed_patterns}")
+            
+            # Run our function with debug tracing
+            import builtins
+            original_print = builtins.print
+            def print_wrapper(*args, **kwargs):
+                # Force print to output during tests
+                original_print(*args, **kwargs)
+            builtins.print = print_wrapper
+            
+            # Direct test of ignore handler
+            handler = IgnoreHandler(patterns=processed_patterns, debug=True)
+            ignored_root = handler.is_ignored(".editorconfig")
+            print(f".editorconfig is ignored: {ignored_root}")
+            
+            # Test with the relative path (simulates the exact issue)
+            ignored_rel = handler.is_ignored(f"{rel_path}/.editorconfig")
+            print(f"{rel_path}/.editorconfig is ignored: {ignored_rel}")
+            
+            # Test with the absolute path (alternate approach)
+            ignored_abs = handler.is_ignored(os.path.join(target_dir, ".editorconfig"))
+            print(f"{target_dir}/.editorconfig is ignored: {ignored_abs}")
+            
+            # Get files normally and check output
+            files = get_text_files(rel_path, processed_patterns)
+            print(f"Files found in {rel_path}:")
+            for f in files:
+                print(f"  {f}")
+                
+            # Force test to fail if .editorconfig is not being ignored
+            self.assertNotIn(".editorconfig", files, ".editorconfig should be ignored but was found in results")
+            
+            # Restore original print
+            builtins.print = original_print
+                
+        finally:
+            # Return to original directory
+            os.chdir(current_dir)
+
+    def test_kubernetes_command_line_simulation(self):
+        """Simulate the exact command line options used in the Kubernetes environment."""
+        # Set up temporary directories that match the Kubernetes environment structure
+        with tempfile.TemporaryDirectory() as base_dir:
+            # Create workspace structure
+            workdir = os.path.join(base_dir, "workspace", "projects", "empty")
+            target_dir = os.path.join(base_dir, "workspace", "projects", "android-installer")
+            
+            # Create directories
+            os.makedirs(workdir, exist_ok=True)
+            os.makedirs(target_dir, exist_ok=True)
+            
+            # Create problematic .editorconfig file
+            with open(os.path.join(target_dir, ".editorconfig"), "w") as f:
+                f.write("# Root = true\n")
+            
+            # Create some other files for testing
+            with open(os.path.join(target_dir, "code.py"), "w") as f:
+                f.write("print('hello world')\n")
+            
+            # Simulate other files in the structure
+            with open(os.path.join(target_dir, "README.md"), "w") as f:
+                f.write("# Test Project\n")
+                
+            # Change to the working directory
+            original_dir = os.getcwd()
+            os.chdir(workdir)
+            
+            try:
+                # Get the relative path to the target directory (as used with --dirs)
+                target_rel_path = os.path.relpath(target_dir, workdir)
+                
+                # Define the same ignore patterns used in the command
+                ignore_patterns = [
+                    "node_modules",
+                    ".git",
+                    ".idea",
+                    ".gradle",
+                    "build",
+                    "dist",
+                    "**/__pycache__",
+                    "**/*.pyc",
+                    "**/*.pyo",
+                    "**/*.pyd",
+                    "**/.DS_Store",
+                    "**/.editorconfig",
+                    ".editorconfig"
+                ]
+                
+                print(f"Current working directory: {os.getcwd()}")
+                print(f"Target directory (relative): {target_rel_path}")
+                
+                # Debug the ignore patterns using the same mechanism as in the app
+                print("\nIgnore pattern debug:")
+                if debug_ignore_patterns:
+                    debug_ignore_patterns(target_rel_path, ignore_patterns)
+                
+                # Create handler and check specific paths - direct check
+                handler = IgnoreHandler(patterns=ignore_patterns, base_dir=workdir)
+                editorconfig_path = os.path.join(target_rel_path, ".editorconfig")
+                
+                print(f"\nChecking if '{editorconfig_path}' is ignored: {handler.is_ignored(editorconfig_path)}")
+                assert handler.is_ignored(editorconfig_path), f".editorconfig should be ignored by handler"
+                
+                # Now actually test the get_text_files function with the same parameters
+                found_files = get_text_files(
+                    directory=target_rel_path,
+                    ignore_paths=ignore_patterns,
+                    use_git_ignore=False
+                )
+                
+                print(f"\nFiles found: {found_files}")
+                
+                # Verify that .editorconfig is not in the results
+                assert ".editorconfig" not in [os.path.basename(f) for f in found_files], \
+                    f".editorconfig should be ignored but was found in: {found_files}"
+                
+                # Verify other files are present
+                assert any(f.endswith("code.py") for f in found_files), "code.py should be included"
+                assert any(f.endswith("README.md") for f in found_files), "README.md should be included"
+                
+            finally:
+                # Restore original directory
+                os.chdir(original_dir)
 
     def _verify_file_sets(self, actual_paths, expected_files, excluded_files):
         """Helper method to verify file sets match expectations."""
