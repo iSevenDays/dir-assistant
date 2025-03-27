@@ -1,5 +1,6 @@
 import os
 import sys
+import json
 
 import litellm
 from colorama import Fore, Style
@@ -9,7 +10,7 @@ from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.keys import Keys
 
 from dir_assistant.assistant.file_watcher import start_file_watcher
-from dir_assistant.assistant.index import create_file_index
+from dir_assistant.assistant.index import create_file_index, debug_ignore_patterns
 from dir_assistant.assistant.lite_llm_assistant import LiteLLMAssistant
 from dir_assistant.assistant.lite_llm_embed import LiteLlmEmbed
 from dir_assistant.assistant.llama_cpp_assistant import LlamaCppAssistant
@@ -224,6 +225,30 @@ def start(args, config_dict):
     if config_dict["VERBOSE"]:
         print(f"dir-assistant {VERSION}")
 
+    # Handle --verbose-show-ignored flag
+    if args.verbose_show_ignored:
+        ignore_paths = args.ignore if args.ignore else []
+        ignore_paths.extend(config_dict["GLOBAL_IGNORES"])
+        
+        print(f"{Fore.GREEN}Analyzing ignore patterns...{Style.RESET_ALL}")
+        print(f"{Fore.LIGHTBLACK_EX}Using patterns: {ignore_paths}{Style.RESET_ALL}")
+        
+        # Debug current directory first
+        results = debug_ignore_patterns(".", ignore_paths, args.use_gitignore)
+        print(f"\n{Fore.GREEN}Results for current directory:{Style.RESET_ALL}")
+        print_ignore_results(results)
+        
+        # Debug each extra directory
+        extra_dirs = args.dirs if args.dirs else []
+        for directory in extra_dirs:
+            dir_results = debug_ignore_patterns(directory, ignore_paths, args.use_gitignore)
+            print(f"\n{Fore.GREEN}Results for directory '{directory}':{Style.RESET_ALL}")
+            print_ignore_results(dir_results)
+            
+        # If this was a diagnostic command, exit after showing results
+        if not single_prompt:
+            sys.exit(0)
+
     if single_prompt:
         # For single prompt mode, many options are ignored
         config_dict["NO_COLOR"] = True
@@ -299,3 +324,41 @@ def start(args, config_dict):
             continue
         else:
             llm.stream_chat(user_input)
+
+
+def print_ignore_results(results):
+    """Print the results of ignore pattern analysis in a user-friendly format."""
+    print(f"{Fore.LIGHTBLACK_EX}Directory: {results['directory']}{Style.RESET_ALL}")
+    print(f"{Fore.LIGHTBLACK_EX}Patterns: {results['patterns']}{Style.RESET_ALL}")
+    print(f"{Fore.LIGHTBLACK_EX}Basename patterns: {results['basename_patterns']}{Style.RESET_ALL}")
+    
+    # Count files ignored vs not ignored
+    ignored_files = [f for f, data in results['files'].items() if data['ignored']]
+    not_ignored_files = [f for f, data in results['files'].items() if not data['ignored']]
+    
+    print(f"\n{Fore.YELLOW}Summary:{Style.RESET_ALL}")
+    print(f"  Total files: {len(results['files'])}")
+    print(f"  Ignored: {len(ignored_files)}")
+    print(f"  Not ignored: {len(not_ignored_files)}")
+    
+    # Show ignored files with details
+    if ignored_files:
+        print(f"\n{Fore.RED}Ignored files:{Style.RESET_ALL}")
+        for filepath in sorted(ignored_files):
+            data = results['files'][filepath]
+            reason = "basename pattern match" if data['matches_basename_pattern'] else "pattern match"
+            print(f"  {filepath} ({reason})")
+    
+    # Optionally show first few non-ignored files
+    if not_ignored_files:
+        print(f"\n{Fore.GREEN}Sample of non-ignored files (first 5):{Style.RESET_ALL}")
+        for filepath in sorted(not_ignored_files)[:5]:
+            print(f"  {filepath}")
+    
+    # Check for any hidden files that SHOULD have been ignored but weren't
+    suspicious_files = [f for f, data in results['files'].items() 
+                        if data['is_hidden'] and not data['ignored']]
+    if suspicious_files:
+        print(f"\n{Fore.RED}Warning: Found hidden files that are NOT being ignored:{Style.RESET_ALL}")
+        for filepath in sorted(suspicious_files):
+            print(f"  {filepath}")

@@ -3,7 +3,7 @@ import warnings
 
 warnings.filterwarnings("ignore")
 
-from dir_assistant.assistant.index import clear
+from dir_assistant.assistant.index import clear, debug_ignore_patterns
 from dir_assistant.cli.config import config, config_open, load_config
 from dir_assistant.cli.models import (
     models_download_embed,
@@ -59,6 +59,11 @@ def main():
         action="store_true",
         help="Respect .gitignore files in the directory tree.",
     )
+    parser.add_argument(
+        "--verbose-show-ignored",
+        action="store_true",
+        help="Show detailed information about which files are being ignored and why.",
+    )
 
     mode_subparsers = parser.add_subparsers(
         dest="mode", help="Run dir-assistant in regular mode"
@@ -105,6 +110,11 @@ def main():
         "--use-gitignore",
         action="store_true",
         help="Respect .gitignore files in the directory tree.",
+    )
+    start_parser.add_argument(
+        "--verbose-show-ignored",
+        action="store_true",
+        help="Show detailed information about which files are being ignored and why.",
     )
     start_subparsers = start_parser.add_subparsers(
         dest="start_mode", help="Operation mode for the config subcommand."

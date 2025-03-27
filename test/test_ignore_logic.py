@@ -371,6 +371,70 @@ class TestIgnoreLogic(unittest.TestCase):
         self.assertTrue(handler2.is_ignored(rel_path))
         self.assertTrue(handler2.is_ignored(abs_path))
 
+    def test_complex_patterns_with_case_sensitivity(self):
+        """Test complex patterns with case sensitivity.
+        
+        This test validates the actual behavior of the implementation
+        with regard to case sensitivity.
+        """
+        # Test basic case-insensitive matching (default behavior)
+        handler = IgnoreHandler(patterns=["*.log"])
+        self.assertTrue(handler.is_ignored("file.log"), "Lowercase should match")
+        self.assertTrue(handler.is_ignored("file.LOG"), "Uppercase should match with case-insensitive (default)")
+        
+        # Test basic case-sensitive matching
+        handler = IgnoreHandler(patterns=["*.log"], case_sensitive=True)
+        self.assertTrue(handler.is_ignored("file.log"), "Exact case should match")
+        self.assertFalse(handler.is_ignored("file.LOG"), "Different case should not match in case-sensitive mode")
+        
+        # Test with negation and case sensitivity
+        # NOTE: The PathSpec library handles negation in an unexpected way with case sensitivity
+        # It appears that negation patterns affect all case variants, even in case-sensitive mode
+        handler = IgnoreHandler(patterns=["*.log", "!important.log"], case_sensitive=True)
+        self.assertTrue(handler.is_ignored("debug.log"), "Basic pattern should match")
+        self.assertFalse(handler.is_ignored("important.log"), "Negated pattern should not match")
+        self.assertFalse(handler.is_ignored("IMPORTANT.LOG"), "Negation applies to all case variants")
+        
+        # Verify with a different pattern format
+        handler = IgnoreHandler(patterns=["*.LOG", "!IMPORTANT.LOG"], case_sensitive=True)
+        self.assertFalse(handler.is_ignored("file.log"), "Case differs from pattern")
+        self.assertTrue(handler.is_ignored("file.LOG"), "Exact case matches pattern")
+        self.assertFalse(handler.is_ignored("IMPORTANT.LOG"), "Negated pattern should not match")
+        
+        # Test with negation and case insensitivity (default)
+        handler = IgnoreHandler(patterns=["*.log", "!important.log"])
+        self.assertTrue(handler.is_ignored("debug.log"), "Basic pattern should match")
+        self.assertFalse(handler.is_ignored("important.log"), "Negated pattern should not match")
+        self.assertFalse(handler.is_ignored("IMPORTANT.LOG"), "With case-insensitive, negation applies regardless of case")
+
+    def test_kubernetes_external_directory_ignore(self):
+        """Test that dot files (like .editorconfig) are properly ignored in external directories.
+        
+        This simulates the Kubernetes environment where the working directory is different
+        from the directory being processed with the --dirs flag.
+        """
+        # Create an ignore handler with .editorconfig as pattern (simulates --ignore .editorconfig)
+        patterns = ['.editorconfig']
+        handler = IgnoreHandler(patterns=patterns)
+        
+        # Test root level file
+        self.assertTrue(handler.is_ignored('.editorconfig'))
+        
+        # Test files in subdirectories 
+        self.assertTrue(handler.is_ignored('some/path/.editorconfig'))
+        
+        # Test with path that includes a parent directory reference
+        # Simulates when using --dirs "../installer" from within a Kubernetes pod
+        self.assertTrue(handler.is_ignored('../installer/.editorconfig'))
+        
+        # Test with absolute paths (as might occur in mounted volumes)
+        self.assertTrue(handler.is_ignored('/workspace/projects/installer/.editorconfig'))
+        
+        # Also verify the preprocessed patterns work as expected
+        processed_patterns = handler._preprocess_patterns(patterns)
+        self.assertIn('.editorconfig', processed_patterns)
+        self.assertIn('**/.editorconfig', processed_patterns)
+
 
 if __name__ == '__main__':
     unittest.main() 

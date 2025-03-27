@@ -158,8 +158,17 @@ def create_file_index(
         # Convert relative paths to absolute to ensure they exist check works properly
         abs_folder_path = os.path.abspath(folder)
         if os.path.exists(abs_folder_path):
+            if verbose:
+                print(f"Processing additional directory: {abs_folder_path}")
+                
             # Apply the same ignore patterns to the target directory
             folder_files = get_files_with_contents(abs_folder_path, processed_ignore_paths, cache_db, use_git_ignore)
+            
+            if verbose:
+                skipped_files = [os.path.basename(f) for f in processed_ignore_paths if os.path.basename(f).startswith('.')]
+                if skipped_files:
+                    print(f"Basename patterns that should be skipped: {skipped_files}")
+                    
             files_with_contents.extend(folder_files)
         else:
             if verbose:
@@ -447,3 +456,61 @@ def preprocess_ignore_patterns(ignore_paths):
             processed_patterns.append(pattern)
             
     return processed_patterns
+
+
+def debug_ignore_patterns(directory, ignore_paths, use_git_ignore=False):
+    """Debug function to see which files would be ignored with the given patterns.
+    
+    Args:
+        directory: Base directory to check in
+        ignore_paths: List of ignore patterns to apply
+        use_git_ignore: Whether to also respect .gitignore files
+        
+    Returns:
+        Dictionary with info about which files are ignored and why
+    """
+    abs_dir = os.path.abspath(directory)
+    
+    # Process ignore patterns for consistency
+    processed_patterns = preprocess_ignore_patterns(ignore_paths)
+    
+    # Set up the ignore handler with debug mode enabled
+    ignore_handler = IgnoreHandler(
+        patterns=processed_patterns,
+        use_git_ignore=use_git_ignore,
+        base_dir=abs_dir,
+        debug=True  # Enable detailed logging
+    )
+    
+    results = {
+        "directory": abs_dir,
+        "patterns": processed_patterns,
+        "files": {},
+        "basename_patterns": [p for p in processed_patterns if p.startswith(".") and "/" not in p 
+                              or p.startswith("**/") and p[3:].startswith(".")]
+    }
+    
+    # Walk the directory and check each file
+    for root, dirs, files in os.walk(abs_dir, followlinks=True):
+        rel_root = os.path.relpath(root, abs_dir)
+        
+        # Check files in this directory
+        for filename in files:
+            rel_path = os.path.join(rel_root, filename) if rel_root != '.' else filename
+            abs_path = os.path.join(root, filename)
+            
+            if os.path.isfile(abs_path):
+                # Check if this file would be ignored
+                is_ignored = ignore_handler.is_ignored(rel_path)
+                
+                # Store result
+                results["files"][rel_path] = {
+                    "ignored": is_ignored,
+                    "basename": os.path.basename(rel_path),
+                    "is_hidden": filename.startswith("."),
+                    "matches_basename_pattern": filename in results["basename_patterns"] or 
+                                               any(p[3:] == filename for p in results["basename_patterns"] 
+                                                  if p.startswith("**/"))
+                }
+    
+    return results
