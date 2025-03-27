@@ -199,15 +199,21 @@ def initialize_llm(args, config_dict, chat_mode=True):
     verbose = config["VERBOSE"] or args.verbose
     no_color = config["NO_COLOR"] or args.no_color
 
-    # Check for basic missing model configs using the helper function
-    validate_model_config(
-        active_model_is_local, 
-        config["LLM_MODEL"], 
-        "LLM_MODEL", 
-        "LLM"
-    )
-    
-    if not active_model_is_local:
+    # Check model configurations based on whether we're using local or remote models
+    # IMPORTANT: We only check for LLM_MODEL when using local models and only check
+    # for LITELLM_MODEL when using remote models. The previous implementation was incorrectly
+    # checking for LLM_MODEL in all cases, causing errors when using environment variables
+    # to configure remote models without LLM_MODEL being set.
+    if active_model_is_local:
+        # Only validate LLM_MODEL if we're using a local model
+        validate_model_config(
+            active_model_is_local, 
+            config["LLM_MODEL"], 
+            "LLM_MODEL", 
+            "LLM"
+        )
+    else:
+        # Only validate LITELLM_MODEL if we're using a remote model
         validate_model_config(
             False, 
             lite_llm_model, 
@@ -216,14 +222,16 @@ def initialize_llm(args, config_dict, chat_mode=True):
         )
     
     # Check for basic missing embedding model configs
-    validate_model_config(
-        active_embed_is_local, 
-        config["EMBED_MODEL"], 
-        "EMBED_MODEL", 
-        "embedding"
-    )
-    
-    if not active_embed_is_local:
+    # Similarly, we only check EMBED_MODEL for local embedding models and
+    # LITELLM_EMBED_MODEL for remote embedding models
+    if active_embed_is_local:
+        validate_model_config(
+            active_embed_is_local, 
+            config["EMBED_MODEL"], 
+            "EMBED_MODEL", 
+            "embedding"
+        )
+    else:
         validate_model_config(
             False, 
             lite_llm_embed_model, 
