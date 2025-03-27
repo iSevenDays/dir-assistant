@@ -65,6 +65,9 @@ def run_single_prompt(args, config_dict):
         print(f"{Fore.LIGHTBLACK_EX}Original patterns: {ignore_paths}{Style.RESET_ALL}")
         print(f"{Fore.LIGHTBLACK_EX}Processed patterns: {processed_ignore_paths}{Style.RESET_ALL}")
     
+    # Store processed patterns back in args for use in initialize_llm
+    args.processed_ignore_paths = processed_ignore_paths
+    
     llm = initialize_llm(args, config_dict, chat_mode=False)
     llm.initialize_history()
     response = llm.run_stream_processes(args.single_prompt, True)
@@ -144,6 +147,16 @@ see readme for more information. Exiting..."""
 
     extra_dirs = args.dirs if args.dirs else []
 
+    # Ensure ignore paths are preprocessed
+    if hasattr(args, 'processed_ignore_paths'):
+        processed_ignore_paths = args.processed_ignore_paths
+    else:
+        processed_ignore_paths = preprocess_ignore_patterns(ignore_paths)
+        
+    # Debug print for verbose mode
+    if verbose:
+        print(f"{Fore.LIGHTBLACK_EX}Using these processed ignore patterns for file index: {processed_ignore_paths}{Style.RESET_ALL}")
+
     # Initialize the embedding model
     if verbose:
         print(f"{Fore.LIGHTBLACK_EX}Loading embedding model...{Style.RESET_ALL}")
@@ -177,7 +190,7 @@ see readme for more information. Exiting..."""
         )
     index, chunks = create_file_index(
         embed, 
-        ignore_paths, 
+        processed_ignore_paths,  # Use processed ignore paths
         embed_chunk_size, 
         extra_dirs, 
         verbose,
@@ -247,6 +260,9 @@ def start(args, config_dict):
         # Ensure we're using the same processed patterns that will be used later
         processed_ignore_paths = preprocess_ignore_patterns(ignore_paths)
         
+        # Store processed patterns for use elsewhere in the code
+        args.processed_ignore_paths = processed_ignore_paths
+        
         print(f"{Fore.GREEN}Analyzing ignore patterns...{Style.RESET_ALL}")
         print(f"{Fore.LIGHTBLACK_EX}Input patterns: {ignore_paths}{Style.RESET_ALL}")
         print(f"{Fore.LIGHTBLACK_EX}Processed patterns that will be used: {processed_ignore_paths}{Style.RESET_ALL}")
@@ -296,11 +312,14 @@ def start(args, config_dict):
         else embed.get_chunk_size()
     )
 
+    # Process ignore paths to ensure they work correctly in all directories
+    processed_ignore_paths = preprocess_ignore_patterns(ignore_paths)
+    
     # Start file watcher. It is running in another thread after this.
     watcher = start_file_watcher(
         ".", 
         embed, 
-        ignore_paths, 
+        processed_ignore_paths,  # Use processed ignore paths here
         embed_chunk_size, 
         llm.update_index_and_chunks,
         use_git_ignore=args.use_gitignore

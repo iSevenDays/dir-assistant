@@ -29,7 +29,7 @@ class FileChangeHandler(FileSystemEventHandler):
         
         Args:
             embed: Embedding model instance
-            ignore_paths: List of paths to ignore
+            ignore_paths: List of paths to ignore (should be preprocessed with preprocess_ignore_patterns)
             embed_chunk_size: Size of chunks for embedding
             llm_updated_index_callback: Callback when index is updated
             base_dir: Base directory to watch
@@ -38,7 +38,7 @@ class FileChangeHandler(FileSystemEventHandler):
         self.embed = embed
         self.base_dir = os.path.abspath(base_dir)
         self.ignore_handler = IgnoreHandler(
-            ignore_paths=ignore_paths,
+            ignore_paths=ignore_paths,  # These should be preprocessed patterns
             use_git_ignore=use_git_ignore,
             base_dir=self.base_dir
         )
@@ -121,7 +121,7 @@ def start_file_watcher(
     Args:
         directory: Directory to watch
         embed: Embedding model instance
-        ignore_paths: List of paths to ignore
+        ignore_paths: List of paths to ignore (preprocessed with preprocess_ignore_patterns)
         embed_chunk_size: Size of chunks for embedding
         llm_updated_index_callback: Callback when index is updated
         use_git_ignore: Whether to respect .gitignore files
