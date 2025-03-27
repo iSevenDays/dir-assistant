@@ -145,6 +145,26 @@ def run_single_prompt(args, config_dict):
     sys.stdout.write(response)
 
 
+def validate_model_config(is_local, model_name, model_config_key, model_type="LLM"):
+    """Validate that the required model configuration is present.
+    
+    Args:
+        is_local: Whether a local model is being used
+        model_name: The model name from config
+        model_config_key: The configuration key for the model
+        model_type: Type of model (LLM or embedding) for error messages
+        
+    Raises:
+        SystemExit: If required configuration is missing
+    """
+    if not model_name:
+        print(
+            f"""You must specify {model_config_key}. Use 'dir-assistant config open' and \
+see readme for more information. Exiting..."""
+        )
+        exit(1)
+
+
 def initialize_llm(args, config_dict, chat_mode=True):
     # Get the proper config section
     config = get_config_section(config_dict)
@@ -179,35 +199,37 @@ def initialize_llm(args, config_dict, chat_mode=True):
     verbose = config["VERBOSE"] or args.verbose
     no_color = config["NO_COLOR"] or args.no_color
 
-    # Check for basic missing model configs
-    if active_model_is_local:
-        if config["LLM_MODEL"] == "":
-            print(
-                """You must specify LLM_MODEL. Use 'dir-assistant config open' and \
-    see readme for more information. Exiting..."""
-            )
-            exit(1)
-    elif lite_llm_model == "":
-        print(
-            """You must specify LITELLM_MODEL. Use 'dir-assistant config open' and see readme \
-for more information. Exiting..."""
+    # Check for basic missing model configs using the helper function
+    validate_model_config(
+        active_model_is_local, 
+        config["LLM_MODEL"], 
+        "LLM_MODEL", 
+        "LLM"
+    )
+    
+    if not active_model_is_local:
+        validate_model_config(
+            False, 
+            lite_llm_model, 
+            "LITELLM_MODEL", 
+            "LLM"
         )
-        exit(1)
-
+    
     # Check for basic missing embedding model configs
-    if active_embed_is_local:
-        if config["EMBED_MODEL"] == "":
-            print(
-                """You must specify EMBED_MODEL. Use 'dir-assistant config open' and \
-see readme for more information. Exiting..."""
-            )
-            exit(1)
-    elif lite_llm_embed_model == "":
-        print(
-            """You must specify LITELLM_EMBED_MODEL. Use 'dir-assistant config open' and \
-see readme for more information. Exiting..."""
+    validate_model_config(
+        active_embed_is_local, 
+        config["EMBED_MODEL"], 
+        "EMBED_MODEL", 
+        "embedding"
+    )
+    
+    if not active_embed_is_local:
+        validate_model_config(
+            False, 
+            lite_llm_embed_model, 
+            "LITELLM_EMBED_MODEL", 
+            "embedding"
         )
-        exit(1)
 
     extra_dirs = args.dirs if args.dirs else []
 

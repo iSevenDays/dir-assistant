@@ -16,6 +16,28 @@ from dir_assistant.cli.setkey import setkey
 from dir_assistant.cli.start import start
 
 
+class AppendMultipleAction(argparse.Action):
+    """Custom argparse action to collect multiple instances of the same argument.
+    
+    This ensures that multiple --ignore flags are all collected into a single list,
+    rather than having the last one override previous ones.
+    """
+    def __init__(self, option_strings, dest, nargs=None, **kwargs):
+        if nargs != '+':
+            raise ValueError("nargs must be '+' for AppendMultipleAction")
+        super().__init__(option_strings, dest, nargs=nargs, **kwargs)
+    
+    def __call__(self, parser, namespace, values, option_string=None):
+        # Initialize list if it doesn't exist
+        if getattr(namespace, self.dest) is None:
+            setattr(namespace, self.dest, [])
+        
+        # Append the values to the existing list
+        current_list = getattr(namespace, self.dest)
+        current_list.extend(values)
+        setattr(namespace, self.dest, current_list)
+
+
 def main():
     # Setup argument parsing
     parser = argparse.ArgumentParser(
@@ -27,6 +49,7 @@ def main():
         "--ignore",
         type=str,
         nargs="+",
+        action=AppendMultipleAction,
         help="A list of space-separated filepaths to ignore.",
     )
     parser.add_argument(
@@ -34,6 +57,7 @@ def main():
         "--dirs",
         type=str,
         nargs="+",
+        action=AppendMultipleAction,
         help="A list of space-separated directories to work on. Your current directory will always be used.",
     )
     parser.add_argument(
@@ -79,6 +103,7 @@ def main():
         "--ignore",
         type=str,
         nargs="+",
+        action=AppendMultipleAction,
         help="A list of space-separated filepaths to ignore.",
     )
     start_parser.add_argument(
@@ -86,6 +111,7 @@ def main():
         "--dirs",
         type=str,
         nargs="+",
+        action=AppendMultipleAction,
         help="A list of space-separated directories to work on. Your current directory will always be used.",
     )
     start_parser.add_argument(
