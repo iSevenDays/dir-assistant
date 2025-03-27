@@ -220,16 +220,15 @@ see readme for more information. Exiting..."""
 
 def start(args, config_dict):
     single_prompt = args.single_prompt
+    
+    if config_dict["VERBOSE"]:
+        print(f"dir-assistant {VERSION}")
 
     if single_prompt:
         # For single prompt mode, many options are ignored
         config_dict["NO_COLOR"] = True
         config_dict["VERBOSE"] = False
-        config_dict["PRINT_CGRAG"] = False
         config_dict["COMMIT_TO_GIT"] = False
-
-    if config_dict["VERBOSE"]:
-        print(f"dir-assistant {VERSION}")
 
     llm = initialize_llm(args, config_dict, chat_mode=not single_prompt)
     llm.initialize_history()
