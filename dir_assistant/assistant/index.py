@@ -198,71 +198,151 @@ def create_file_index(
 
 
 def process_file(embed, filepath, contents, embed_chunk_size, verbose=False):
+    """Process a file into chunks that fit within the embedding model's context window.
+    
+    Args:
+        embed: The embedding model to use
+        filepath: Path to the file being processed
+        contents: Content of the file
+        embed_chunk_size: Maximum number of tokens per chunk
+        verbose: Whether to print verbose output
+        
+    Returns:
+        Tuple of (chunks, embeddings)
+    """
     lines = contents.split("\n")
     current_chunk = ""
     start_line_number = 1
     chunks = []
     embeddings_list = []
+    max_tokens = embed_chunk_size - 50  # Leave margin for safety
 
     if verbose:
-        print(
-            f"{Fore.LIGHTBLACK_EX}Creating embeddings for {filepath}{Style.RESET_ALL}"
-        )
+        print(f"{Fore.LIGHTBLACK_EX}Creating embeddings for {filepath}{Style.RESET_ALL}")
+        
     for line_number, line in enumerate(lines, start=1):
         # Process each line individually if needed
         line_content = line
         while line_content:
+            # Create proposed chunk by adding this line to current chunk
             proposed_chunk = current_chunk + line_content + "\n"
             chunk_header = f"---------------\n\nUser file '{filepath}' lines {start_line_number}-{line_number}:\n\n"
             proposed_text = chunk_header + proposed_chunk
             chunk_tokens = embed.count_tokens(proposed_text)
+            
+            if verbose and chunk_tokens > max_tokens:
+                print(f"{Fore.LIGHTBLACK_EX}Chunk exceeds token limit: {chunk_tokens}/{max_tokens} - splitting{Style.RESET_ALL}")
 
-            if chunk_tokens <= embed_chunk_size:
+            if chunk_tokens <= max_tokens:
+                # Line fits, add it to current chunk and move to next line
                 current_chunk = proposed_chunk
-                break  # The line fits in the current chunk, break out of the inner loop
+                break
             else:
-                # Split line if too large for a new chunk
+                # Line doesn't fit, need to handle differently depending on current state
                 if current_chunk == "":
-                    split_point = find_split_point(
-                        embed, line_content, embed_chunk_size, chunk_header
-                    )
+                    # Current chunk is empty but line is still too big, need to split the line
+                    split_point = find_split_point(embed, line_content, max_tokens, chunk_header)
+                    
+                    if split_point == 0:  # Cannot split further
+                        if verbose:
+                            print(f"{Fore.YELLOW}WARNING: Cannot chunk line effectively in {filepath}, line {line_number}{Style.RESET_ALL}")
+                        # Force a minimum split to avoid infinite loop
+                        split_point = min(100, len(line_content) // 2) if len(line_content) > 100 else 1
+                    
+                    # Take first part of line and continue processing the rest
                     current_chunk = line_content[:split_point] + "\n"
                     line_content = line_content[split_point:]
+                    
+                    # Verify the chunk is actually under the limit
+                    test_text = chunk_header + current_chunk
+                    test_tokens = embed.count_tokens(test_text)
+                    
+                    if test_tokens > max_tokens:
+                        if verbose:
+                            print(f"{Fore.YELLOW}WARNING: Split chunk still exceeds token limit ({test_tokens}/{max_tokens}){Style.RESET_ALL}")
+                        # Emergency split - reduce size further
+                        current_chunk = current_chunk[:len(current_chunk)//2] + "...\n"
                 else:
-                    # Save the current chunk as it is, and start a new one
-                    chunks.append(
-                        {
-                            "tokens": embed.count_tokens(chunk_header + current_chunk),
-                            "text": chunk_header + current_chunk,
-                            "filepath": filepath,
-                        }
-                    )
-                    embedding = embed.create_embedding(chunk_header + current_chunk)
+                    # Current chunk has content, save it and start a new chunk with this line
+                    chunk_text = chunk_header + current_chunk
+                    token_count = embed.count_tokens(chunk_text)
+                    
+                    if token_count > max_tokens and verbose:
+                        print(f"{Fore.YELLOW}WARNING: Chunk exceeds token limit ({token_count}/{max_tokens}){Style.RESET_ALL}")
+                    
+                    chunks.append({
+                        "tokens": token_count,
+                        "text": chunk_text,
+                        "filepath": filepath,
+                    })
+                    embedding = embed.create_embedding(chunk_text)
                     embeddings_list.append(embedding)
+                    
+                    # Reset for next chunk
                     current_chunk = ""
                     start_line_number = line_number  # Next chunk starts from this line
-                    # Do not break; continue processing the line
+                    # Don't break - continue processing current line
 
     # Add the remaining content as the last chunk
     if current_chunk:
         chunk_header = f"---------------\n\nUser file '{filepath}' lines {start_line_number}-{len(lines)}:\n\n"
-        chunks.append(
-            {
-                "tokens": embed.count_tokens(chunk_header + current_chunk),
-                "text": chunk_header + current_chunk,
-                "filepath": filepath,
-            }
-        )
-        embedding = embed.create_embedding(chunk_header + current_chunk)
+        chunk_text = chunk_header + current_chunk
+        token_count = embed.count_tokens(chunk_text)
+        
+        if token_count > max_tokens and verbose:
+            print(f"{Fore.YELLOW}WARNING: Final chunk exceeds token limit ({token_count}/{max_tokens}){Style.RESET_ALL}")
+            
+        chunks.append({
+            "tokens": token_count,
+            "text": chunk_text,
+            "filepath": filepath,
+        })
+        embedding = embed.create_embedding(chunk_text)
         embeddings_list.append(embedding)
 
+    if verbose:
+        print(f"{Fore.LIGHTBLACK_EX}Created {len(chunks)} chunks for {filepath}{Style.RESET_ALL}")
+        
     return chunks, embeddings_list
 
 
 def find_split_point(embed, line_content, max_size, header):
-    for split_point in range(1, len(line_content)):
-        if embed.count_tokens(header + line_content[:split_point] + "\n") >= max_size:
-            return split_point - 1
+    """Find a point to split the line content to fit within max_size tokens.
+    
+    Args:
+        embed: The embedding model to use for token counting
+        line_content: The line content to split
+        max_size: The maximum number of tokens allowed
+        header: The header text that will be prepended to the content
+        
+    Returns:
+        The index at which to split the line content
+    """
+    # Start with a binary search to quickly narrow down the range
+    left, right = 0, len(line_content)
+    
+    # Handle the case where even a single character exceeds max_size with header
+    if embed.count_tokens(header + line_content[:1] + "\n") > max_size:
+        return 0
+        
+    while left < right:
+        mid = (left + right) // 2
+        if mid == left:  # Avoid infinite loop
+            break
+            
+        token_count = embed.count_tokens(header + line_content[:mid] + "\n")
+        
+        if token_count < max_size:
+            left = mid
+        else:
+            right = mid
+    
+    # Fine-tune: find the largest point that stays under max_size
+    for split_point in range(left, min(right + 1, len(line_content))):
+        if embed.count_tokens(header + line_content[:split_point] + "\n") > max_size:
+            return split_point - 1 if split_point > 0 else 0
+    
+    # If we got here, the entire content fits
     return len(line_content)
 
 
