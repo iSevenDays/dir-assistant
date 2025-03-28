@@ -82,7 +82,7 @@ def check_defaults(config_dict, defaults_dict):
     return config_dict
 
 
-def set_environment_overrides(config_dict):
+def set_environment_overrides(config_dict, verbose=False):
     """Replace config values with environment variable overrides"""
     
     # Add a list to track overridden values
@@ -102,8 +102,8 @@ def set_environment_overrides(config_dict):
 
     config_dict = _override_config(config_dict)
     
-    # Print overridden values if any were found
-    if overridden_values:
+    # Print overridden values if any were found and verbose mode is on
+    if overridden_values and verbose:
         print("Environment overrides applied:")
         for env_key, old_value, new_value in overridden_values:
             print(f"  {env_key}: {old_value} -> {new_value}")
@@ -126,7 +126,7 @@ def coerce_setting_string_value(value_str):
     return value_str
 
 
-def load_config(skip_environment_vars=False):
+def load_config(skip_environment_vars=False, verbose=False):
     config_object = Dynaconf(
         settings_files=[get_file_path(CONFIG_PATH, CONFIG_FILENAME)]
     )
@@ -143,7 +143,7 @@ def load_config(skip_environment_vars=False):
     save_config(config_dict)
 
     # Set any env-overridden config values
-    config_dict = set_environment_overrides(config_dict)
+    config_dict = set_environment_overrides(config_dict, verbose=verbose)
 
     # Set LiteLLM API keys only if not already set in environment
     for key, value in config_dict["DIR_ASSISTANT"]["LITELLM_API_KEYS"].items():

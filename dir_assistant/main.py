@@ -244,7 +244,7 @@ vulkan    - Vulkan""",
     if not (args.mode == "config" and args.config_mode == "open"):
         # Do not load the config file if the user is opening the config file.
         # The toml may be malformed, so we don't want to crash before it is opened.
-        config_dict = load_config()
+        config_dict = load_config(verbose=args.verbose)
 
     # Run the user's selected mode
     if args.mode == "start" or args.mode is None:

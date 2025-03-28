@@ -46,7 +46,7 @@ class TestEditorConfigCLI:
             args.dirs = [target_dir]
             
             # Load the actual config
-            config_dict = load_config()
+            config_dict = load_config(verbose=False)
             
             # Get the proper config section - it might be nested
             config = config_dict["DIR_ASSISTANT"] if "DIR_ASSISTANT" in config_dict else config_dict
