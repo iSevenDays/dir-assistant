@@ -83,7 +83,15 @@ def check_defaults(config_dict, defaults_dict):
 
 
 def set_environment_overrides(config_dict, verbose=False):
-    """Replace config values with environment variable overrides"""
+    """Replace config values with environment variable overrides
+    
+    Args:
+        config_dict: The configuration dictionary to update
+        verbose: Whether to print information about environment variable overrides
+        
+    Returns:
+        The updated configuration dictionary
+    """
     
     # Add a list to track overridden values
     overridden_values = []
@@ -102,8 +110,8 @@ def set_environment_overrides(config_dict, verbose=False):
 
     config_dict = _override_config(config_dict)
     
-    # Print overridden values if any were found and verbose mode is on
-    if overridden_values and verbose:
+    # Print overridden values if any were found and verbose mode is explicitly True
+    if overridden_values and verbose is True:
         print("Environment overrides applied:")
         for env_key, old_value, new_value in overridden_values:
             print(f"  {env_key}: {old_value} -> {new_value}")
@@ -127,6 +135,15 @@ def coerce_setting_string_value(value_str):
 
 
 def load_config(skip_environment_vars=False, verbose=False):
+    """Load configuration from file and apply environment variable overrides
+    
+    Args:
+        skip_environment_vars: Whether to skip applying environment variable overrides
+        verbose: Whether to print information about environment variable overrides
+        
+    Returns:
+        The loaded and potentially updated configuration dictionary
+    """
     config_object = Dynaconf(
         settings_files=[get_file_path(CONFIG_PATH, CONFIG_FILENAME)]
     )
